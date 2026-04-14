@@ -17,80 +17,79 @@ fn fixture_root() -> PathBuf {
         .join("sample-repo")
 }
 
-/// Build a grammar dir from the parser crate's build output.
+/// Build a grammar dir once, shared across all tests in this binary.
 fn test_grammars_dir() -> PathBuf {
-    // The parser crate's build script outputs test grammars.
-    // We find them relative to the parser crate's OUT_DIR.
-    // Since we can't access another crate's OUT_DIR directly,
-    // we use the vendored sources + build them here too.
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace_root = manifest.parent().unwrap().parent().unwrap();
-    let parser_grammars = workspace_root
-        .join("tests")
-        .join("fixtures")
-        .join("grammars-src")
-        .join("python");
+    use std::sync::Once;
+    static INIT: Once = Once::new();
 
-    // Build the .so into a temp dir
     let dir = std::env::temp_dir()
         .join("eagraph-test-grammars")
         .join(format!("pid-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
 
-    let lib_name = if cfg!(target_os = "macos") {
-        "python.dylib"
-    } else if cfg!(target_os = "windows") {
-        "python.dll"
-    } else {
-        "python.so"
-    };
+    INIT.call_once(|| {
+        std::fs::create_dir_all(&dir).unwrap();
 
-    let lib_path = dir.join(lib_name);
-    if !lib_path.exists() {
-        // Compile the grammar
-        let parser_c = parser_grammars.join("parser.c");
-        let scanner_c = parser_grammars.join("scanner.c");
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest.parent().unwrap().parent().unwrap();
+        let parser_grammars = workspace_root
+            .join("tests")
+            .join("fixtures")
+            .join("grammars-src")
+            .join("python");
 
-        let obj_dir = dir.join("obj");
-        std::fs::create_dir_all(&obj_dir).unwrap();
+        let lib_name = if cfg!(target_os = "macos") {
+            "python.dylib"
+        } else if cfg!(target_os = "windows") {
+            "python.dll"
+        } else {
+            "python.so"
+        };
 
-        for src in [&parser_c, &scanner_c] {
-            if !src.exists() { continue; }
-            let obj = obj_dir.join(src.file_stem().unwrap()).with_extension("o");
-            let status = std::process::Command::new("cc")
-                .args(["-c", "-fPIC", "-O2"])
-                .arg("-I").arg(&parser_grammars)
-                .arg(src)
-                .arg("-o").arg(&obj)
-                .status()
-                .expect("cc not found");
-            assert!(status.success(), "failed to compile {}", src.display());
+        let lib_path = dir.join(lib_name);
+        if !lib_path.exists() {
+            let parser_c = parser_grammars.join("parser.c");
+            let scanner_c = parser_grammars.join("scanner.c");
+
+            let obj_dir = dir.join("obj");
+            std::fs::create_dir_all(&obj_dir).unwrap();
+
+            for src in [&parser_c, &scanner_c] {
+                if !src.exists() { continue; }
+                let obj = obj_dir.join(src.file_stem().unwrap()).with_extension("o");
+                let status = std::process::Command::new("cc")
+                    .args(["-c", "-fPIC", "-O2"])
+                    .arg("-I").arg(&parser_grammars)
+                    .arg(src)
+                    .arg("-o").arg(&obj)
+                    .status()
+                    .expect("cc not found");
+                assert!(status.success(), "failed to compile {}", src.display());
+            }
+
+            let objs: Vec<PathBuf> = std::fs::read_dir(&obj_dir)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("o"))
+                .collect();
+
+            let mut link = std::process::Command::new("cc");
+            link.arg("-shared");
+            if cfg!(target_os = "macos") {
+                link.arg("-dynamiclib");
+            }
+            for obj in &objs {
+                link.arg(obj);
+            }
+            link.arg("-o").arg(&lib_path);
+            let status = link.status().expect("linker failed");
+            assert!(status.success(), "failed to link {}", lib_name);
         }
 
-        let objs: Vec<PathBuf> = std::fs::read_dir(&obj_dir)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("o"))
-            .collect();
-
-        let mut link = std::process::Command::new("cc");
-        link.arg("-shared");
-        if cfg!(target_os = "macos") {
-            link.arg("-dynamiclib");
-        }
-        for obj in &objs {
-            link.arg(obj);
-        }
-        link.arg("-o").arg(&lib_path);
-        let status = link.status().expect("linker failed");
-        assert!(status.success(), "failed to link {}", lib_name);
-    }
-
-    // Copy .scm and .toml from workspace grammars/
-    let grammars_config = workspace_root.join("grammars");
-    std::fs::copy(grammars_config.join("python.scm"), dir.join("python.scm")).unwrap();
-    std::fs::copy(grammars_config.join("python.toml"), dir.join("python.toml")).unwrap();
+        let grammars_config = workspace_root.join("grammars");
+        std::fs::copy(grammars_config.join("python.scm"), dir.join("python.scm")).unwrap();
+        std::fs::copy(grammars_config.join("python.toml"), dir.join("python.toml")).unwrap();
+    });
 
     dir
 }
