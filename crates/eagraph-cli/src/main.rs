@@ -2,7 +2,7 @@ mod config_loader;
 mod grammar_builder;
 mod indexer;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -43,6 +43,28 @@ enum Command {
         /// Limit search to this repo
         #[arg(long)]
         repo: Option<String>,
+    },
+    /// Get structural context for a symbol (neighbors + source snippets)
+    Context {
+        /// Symbol name
+        name: String,
+        /// Repo name
+        #[arg(long)]
+        repo: String,
+        /// Traversal depth
+        #[arg(long, default_value = "2")]
+        depth: u32,
+    },
+    /// Show what depends on symbols in a file
+    Dependents {
+        /// File path (relative to repo root)
+        file: String,
+        /// Repo name
+        #[arg(long)]
+        repo: String,
+        /// Traversal depth
+        #[arg(long, default_value = "1")]
+        depth: u32,
     },
     /// Print resolved config path and contents
     Config,
@@ -107,6 +129,8 @@ fn main() -> Result<()> {
         Command::Index { repo, all, force } => cmd_index(&config, &data_dir, &grammars_dir, repo.as_deref(), all, force),
         Command::Status => cmd_status(&config, &data_dir),
         Command::Query { name, repo } => cmd_query(&config, &data_dir, &name, repo.as_deref()),
+        Command::Context { name, repo, depth } => cmd_context(&config, &data_dir, &name, &repo, depth),
+        Command::Dependents { file, repo, depth } => cmd_dependents(&config, &data_dir, &file, &repo, depth),
         Command::Grammars { action: GrammarsAction::Check } => {
             grammar_builder::cmd_grammars_check(&config, &grammars_dir)
         }
@@ -249,6 +273,151 @@ fn cmd_query(
         println!("No symbols found matching '{}'", name);
     }
     Ok(())
+}
+
+fn open_repo_store(
+    config: &eagraph_core::Config,
+    data_dir: &PathBuf,
+    repo_name: &str,
+) -> Result<(eagraph_core::RepoConfig, SqliteGraphStore)> {
+    let repo_config = config
+        .repos
+        .iter()
+        .find(|r| r.name == repo_name)
+        .ok_or_else(|| anyhow::anyhow!("repo '{}' not found in config", repo_name))?
+        .clone();
+
+    let branch = config_loader::detect_branch(&repo_config.root)
+        .unwrap_or_else(|_| "main".to_string());
+    let db_path = config_loader::db_path(data_dir, &config.organization.name, &repo_config.name, &branch);
+
+    if !db_path.exists() {
+        anyhow::bail!("repo '{}' not indexed yet. Run: eagraph index {}", repo_name, repo_name);
+    }
+
+    let store = SqliteGraphStore::open(&db_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    Ok((repo_config, store))
+}
+
+fn cmd_context(
+    config: &eagraph_core::Config,
+    data_dir: &PathBuf,
+    name: &str,
+    repo_name: &str,
+    depth: u32,
+) -> Result<()> {
+    let (repo_config, store) = open_repo_store(config, data_dir, repo_name)?;
+
+    let result = eagraph_retriever::get_context(&store, &repo_config.root, name, depth, 2)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    let ctx = match result {
+        Some(c) => c,
+        None => {
+            println!("No symbol found matching '{}'", name);
+            return Ok(());
+        }
+    };
+
+    // Print root symbol
+    print_context_entry(&ctx.root, &repo_config.name);
+
+    // Print edges grouped by kind
+    if !ctx.edges.is_empty() {
+        println!();
+        println!("Edges:");
+        for edge in &ctx.edges {
+            let source_name = std::iter::once(&ctx.root)
+                .chain(ctx.neighbors.iter())
+                .find(|e| e.symbol.id == edge.source)
+                .map(|e| e.symbol.name.as_str())
+                .unwrap_or("?");
+            let target_name = std::iter::once(&ctx.root)
+                .chain(ctx.neighbors.iter())
+                .find(|e| e.symbol.id == edge.target)
+                .map(|e| e.symbol.name.as_str())
+                .unwrap_or("?");
+            println!("  {} → {} ({})", source_name, target_name, edge.kind);
+        }
+    }
+
+    // Print neighbor snippets
+    if !ctx.neighbors.is_empty() {
+        println!();
+        println!("Neighbors ({}):", ctx.neighbors.len());
+        for entry in &ctx.neighbors {
+            println!();
+            print_context_entry(entry, &repo_config.name);
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_dependents(
+    config: &eagraph_core::Config,
+    data_dir: &PathBuf,
+    file: &str,
+    repo_name: &str,
+    depth: u32,
+) -> Result<()> {
+    let (repo_config, store) = open_repo_store(config, data_dir, repo_name)?;
+    // Resolve to absolute path for DB lookup
+    let file_path = if Path::new(file).is_absolute() {
+        PathBuf::from(file)
+    } else {
+        repo_config.root.join(file)
+    };
+
+    let results = eagraph_retriever::get_dependents(&store, &repo_config.root, &file_path, depth, 2)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    if results.is_empty() {
+        println!("No dependents found for {}", file);
+        return Ok(());
+    }
+
+    for ctx in &results {
+        print_context_entry(&ctx.root, &repo_config.name);
+
+        if !ctx.neighbors.is_empty() {
+            println!("  Depended on by:");
+            for entry in &ctx.neighbors {
+                println!(
+                    "    {} ({}) at {}:{}–{}",
+                    entry.symbol.name,
+                    entry.symbol.kind,
+                    entry.symbol.file_path.display(),
+                    entry.symbol.line_start,
+                    entry.symbol.line_end,
+                );
+            }
+        }
+        println!();
+    }
+
+    Ok(())
+}
+
+fn print_context_entry(entry: &eagraph_retriever::ContextEntry, repo_name: &str) {
+    println!(
+        "## {} ({}) [{}]",
+        entry.symbol.name, entry.symbol.kind, repo_name,
+    );
+    println!(
+        "   {}:{}–{}",
+        entry.symbol.file_path.display(),
+        entry.symbol.line_start,
+        entry.symbol.line_end,
+    );
+    if !entry.snippet.is_empty() {
+        println!();
+        for line in entry.snippet.lines() {
+            println!("    {}", line);
+        }
+    }
 }
 
 fn cmd_config(config_path: &PathBuf, grammars_dir: &PathBuf) -> Result<()> {
