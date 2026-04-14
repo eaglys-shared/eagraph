@@ -30,7 +30,7 @@ Parallel parsing (rayon), batch transaction writes, edge resolution (name → Sy
 
 ## M5: Retriever + CLI + Skill + Viz [DONE]
 
-`eagraph-retriever`: `get_context`, `get_dependents`, snippet reader. CLI commands: `context`, `dependents`, `symbols`, `chain`, `viz`. Global `--json` flag. Claude Code skill in `skill/`. Interactive HTML graph visualization with d3-force.
+`eagraph-retriever`: `get_context`, `get_dependents`, snippet reader. CLI commands: `context`, `dependents`, `symbols`, `chain`, `viz`. Global `--json` flag. Claude Code skill in `skill/`. Interactive HTML graph visualization with d3-force and embedded web server. Auto-refresh before every query (mtime-based change detection). Git repo required for `add`.
 
 ---
 

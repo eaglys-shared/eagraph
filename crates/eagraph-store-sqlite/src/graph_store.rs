@@ -59,6 +59,24 @@ impl SqliteGraphStore {
         rows.collect::<std::result::Result<Vec<_>, _>>().map_err(map_err)
     }
 
+    /// Get all file records (path + last_indexed timestamp).
+    pub fn get_all_file_records(&self) -> Result<Vec<FileRecord>> {
+        let conn = self.conn()?;
+        let mut stmt = conn
+            .prepare("SELECT path, content_hash, last_indexed FROM files")
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(FileRecord {
+                    path: PathBuf::from(row.get::<_, String>(0)?),
+                    content_hash: row.get(1)?,
+                    last_indexed: row.get(2)?,
+                })
+            })
+            .map_err(map_err)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(map_err)
+    }
+
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path).map_err(|e| EagraphError::Store(e.to_string()))?;
         Self::init(conn)

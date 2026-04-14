@@ -160,17 +160,19 @@ fn main() -> Result<()> {
     }
     let config = config_loader::load_config(&config_path)?;
     let data_dir = config_loader::resolve_data_dir(None)?;
+    let registry = eagraph_parser::LanguageRegistry::from_dir(&grammars_dir)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let json = cli.json;
     match cli.command {
-        Command::Index { repo, all, force } => cmd_index(&config, &data_dir, &grammars_dir, repo.as_deref(), all, force),
-        Command::Status => cmd_status(&config, &data_dir, json),
-        Command::Query { name, repo } => cmd_query(&config, &data_dir, &name, repo.as_deref(), json),
-        Command::Context { name, repo, depth } => cmd_context(&config, &data_dir, &name, &repo, depth, json),
-        Command::Dependents { file, repo, depth } => cmd_dependents(&config, &data_dir, &file, &repo, depth, json),
-        Command::Symbols { file, repo } => cmd_symbols(&config, &data_dir, &file, &repo, json),
-        Command::Chain { from, to, repo } => cmd_chain(&config, &data_dir, &from, &to, &repo, json),
-        Command::Viz { port } => cmd_viz(&config, &data_dir, port),
+        Command::Index { repo, all, force } => cmd_index(&config, &data_dir, &registry, repo.as_deref(), all, force),
+        Command::Status => cmd_status(&config, &data_dir, &registry, json),
+        Command::Query { name, repo } => cmd_query(&config, &data_dir, &registry, &name, repo.as_deref(), json),
+        Command::Context { name, repo, depth } => cmd_context(&config, &data_dir, &registry, &name, &repo, depth, json),
+        Command::Dependents { file, repo, depth } => cmd_dependents(&config, &data_dir, &registry, &file, &repo, depth, json),
+        Command::Symbols { file, repo } => cmd_symbols(&config, &data_dir, &registry, &file, &repo, json),
+        Command::Chain { from, to, repo } => cmd_chain(&config, &data_dir, &registry, &from, &to, &repo, json),
+        Command::Viz { port } => cmd_viz(&config, &data_dir, &registry, port),
         Command::Grammars { action: GrammarsAction::Check } => {
             grammar_builder::cmd_grammars_check(&config, &grammars_dir)
         }
@@ -178,7 +180,7 @@ fn main() -> Result<()> {
     }
 }
 
-fn cmd_index(config: &eagraph_core::Config, data_dir: &PathBuf, grammars_dir: &PathBuf, repo_filter: Option<&str>, all: bool, force: bool) -> Result<()> {
+fn cmd_index(config: &eagraph_core::Config, data_dir: &PathBuf, registry: &eagraph_parser::LanguageRegistry, repo_filter: Option<&str>, all: bool, force: bool) -> Result<()> {
     if repo_filter.is_none() && !all {
         eprintln!("Specify a repo name or use --all:");
         eprintln!();
@@ -194,11 +196,7 @@ fn cmd_index(config: &eagraph_core::Config, data_dir: &PathBuf, grammars_dir: &P
         std::process::exit(1);
     }
 
-    let registry = eagraph_parser::LanguageRegistry::from_dir(grammars_dir)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
-
-    let extensions = registry.supported_extensions();
-    if extensions.is_empty() {
+    if registry.supported_extensions().is_empty() {
         eprintln!("No grammars installed. Run:");
         eprintln!();
         eprintln!("  eagraph grammars add python typescript  # or whichever languages you need");
@@ -239,7 +237,7 @@ fn cmd_index(config: &eagraph_core::Config, data_dir: &PathBuf, grammars_dir: &P
     Ok(())
 }
 
-fn cmd_status(config: &eagraph_core::Config, data_dir: &PathBuf, json: bool) -> Result<()> {
+fn cmd_status(config: &eagraph_core::Config, data_dir: &PathBuf, registry: &eagraph_parser::LanguageRegistry, json: bool) -> Result<()> {
     let mut items = Vec::new();
     for repo_config in &config.repos {
         let branch = config_loader::detect_branch(&repo_config.root)
@@ -249,8 +247,10 @@ fn cmd_status(config: &eagraph_core::Config, data_dir: &PathBuf, json: bool) -> 
         let symbol_count = if db_path.exists() {
             SqliteGraphStore::open(&db_path)
                 .ok()
-                .and_then(|store| store.search_symbols("", None).ok())
-                .map(|s| s.len())
+                .and_then(|store| {
+                    let _ = indexer::auto_refresh(&store, repo_config, registry);
+                    store.search_symbols("", None).ok().map(|s| s.len())
+                })
         } else {
             None
         };
@@ -279,6 +279,7 @@ fn cmd_status(config: &eagraph_core::Config, data_dir: &PathBuf, json: bool) -> 
 fn cmd_query(
     config: &eagraph_core::Config,
     data_dir: &PathBuf,
+    registry: &eagraph_parser::LanguageRegistry,
     name: &str,
     repo_filter: Option<&str>,
     json: bool,
@@ -301,6 +302,8 @@ fn cmd_query(
 
         let store = SqliteGraphStore::open(&db_path)
             .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        indexer::auto_refresh(&store, repo_config, registry)?;
 
         let results = store.search_symbols(name, None)
             .map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -337,6 +340,7 @@ fn cmd_query(
 fn open_repo_store(
     config: &eagraph_core::Config,
     data_dir: &PathBuf,
+    registry: &eagraph_parser::LanguageRegistry,
     repo_name: &str,
 ) -> Result<(eagraph_core::RepoConfig, SqliteGraphStore)> {
     let repo_config = config
@@ -357,18 +361,22 @@ fn open_repo_store(
     let store = SqliteGraphStore::open(&db_path)
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
+    // Auto-refresh stale files before returning
+    indexer::auto_refresh(&store, &repo_config, registry)?;
+
     Ok((repo_config, store))
 }
 
 fn cmd_context(
     config: &eagraph_core::Config,
     data_dir: &PathBuf,
+    registry: &eagraph_parser::LanguageRegistry,
     name: &str,
     repo_name: &str,
     depth: u32,
     json: bool,
 ) -> Result<()> {
-    let (repo_config, store) = open_repo_store(config, data_dir, repo_name)?;
+    let (repo_config, store) = open_repo_store(config, data_dir, registry, repo_name)?;
 
     let result = eagraph_retriever::get_context(&store, &repo_config.root, name, depth, 2)
         .map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -421,12 +429,13 @@ fn cmd_context(
 fn cmd_dependents(
     config: &eagraph_core::Config,
     data_dir: &PathBuf,
+    registry: &eagraph_parser::LanguageRegistry,
     file: &str,
     repo_name: &str,
     depth: u32,
     json: bool,
 ) -> Result<()> {
-    let (repo_config, store) = open_repo_store(config, data_dir, repo_name)?;
+    let (repo_config, store) = open_repo_store(config, data_dir, registry, repo_name)?;
     let file_path = resolve_file_path(file, &repo_config.root);
 
     let results = eagraph_retriever::get_dependents(&store, &repo_config.root, &file_path, depth, 2)
@@ -467,11 +476,12 @@ fn cmd_dependents(
 fn cmd_symbols(
     config: &eagraph_core::Config,
     data_dir: &PathBuf,
+    registry: &eagraph_parser::LanguageRegistry,
     file: &str,
     repo_name: &str,
     json: bool,
 ) -> Result<()> {
-    let (repo_config, store) = open_repo_store(config, data_dir, repo_name)?;
+    let (repo_config, store) = open_repo_store(config, data_dir, registry, repo_name)?;
     let file_path = resolve_file_path(file, &repo_config.root);
 
     let symbols = store.get_file_symbols(&file_path)
@@ -508,12 +518,13 @@ fn cmd_symbols(
 fn cmd_chain(
     config: &eagraph_core::Config,
     data_dir: &PathBuf,
+    registry: &eagraph_parser::LanguageRegistry,
     from_name: &str,
     to_name: &str,
     repo_name: &str,
     json: bool,
 ) -> Result<()> {
-    let (_, store) = open_repo_store(config, data_dir, repo_name)?;
+    let (_, store) = open_repo_store(config, data_dir, registry, repo_name)?;
 
     let from_sym = store.search_symbols(from_name, None)
         .map_err(|e| anyhow::anyhow!("{}", e))?
@@ -583,11 +594,12 @@ fn cmd_chain(
 fn cmd_viz(
     config: &eagraph_core::Config,
     data_dir: &PathBuf,
+    registry: &eagraph_parser::LanguageRegistry,
     port: u16,
 ) -> Result<()> {
     let mut repos = Vec::new();
     for repo_config in &config.repos {
-        match open_repo_store(config, data_dir, &repo_config.name) {
+        match open_repo_store(config, data_dir, registry, &repo_config.name) {
             Ok((_, store)) => {
                 let symbols = store.get_all_symbols().map_err(|e| anyhow::anyhow!("{}", e))?;
                 let edges = store.get_all_edges().map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -643,9 +655,8 @@ fn cmd_add(config_path: &PathBuf, name: &str, path: &str, grammars_dir: &Path) -
         std::process::exit(1);
     }
 
-    // Check git repo
     if !repo_path.join(".git").exists() {
-        eprintln!("warning: {} is not a git repo. Branch detection and .gitignore will not work.", repo_path.display());
+        anyhow::bail!("{} is not a git repo. eagraph requires git for branch detection, .gitignore, and change tracking.", repo_path.display());
     }
 
     // Check for duplicate

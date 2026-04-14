@@ -39,7 +39,7 @@ eagraph context <name> --repo X [--depth]  # symbol neighborhood + snippets
 eagraph dependents <file> --repo X         # reverse impact analysis
 eagraph symbols <file> --repo X            # file table of contents
 eagraph chain <from> <to> --repo X         # shortest call path
-eagraph viz --repo X                       # interactive graph in browser
+eagraph viz                                # interactive graph in browser
 eagraph config                             # print config path
 eagraph grammars add <lang>...             # compile + install grammar
 eagraph grammars list                      # show installed/available
@@ -54,6 +54,8 @@ All query commands support `--json` global flag.
 - **Grammar config**: `grammars/registry.toml` maps names to GitHub repos. `.scm` + `.toml` per language.
 - **Edge resolution**: extractor produces `RawEdge` (target is a name string). Indexer resolves to `Edge` (target is a SymbolId) via exact name match. `self.method()` resolves to `ClassName.method` using AST scope. Unresolvable edges dropped.
 - **FK**: `edges.source` and `edges.target` both reference `symbols(id)`. Two-pass write: symbols first, edges second.
+- **Auto-refresh**: every query command checks file mtimes before returning. Stale files re-indexed automatically. Zero manual re-indexing needed.
+- **Git required**: `eagraph add` rejects non-git repos. Branch detection, `.gitignore`, and change tracking depend on git.
 - **Indexing**: parallel parsing (rayon), single-transaction batch writes. `--force` deletes DB.
 - **SQL**: `.sql` files embedded via `include_str!`
 - **Storage**: OS app directory (`dirs` crate), never inside repos

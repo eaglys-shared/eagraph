@@ -230,3 +230,124 @@ fn collect_files(
     files.sort();
     Ok(files)
 }
+
+/// Check for stale files and re-index them before a query.
+/// Uses mtime comparison — if a file's mtime is newer than its last_indexed
+/// timestamp, or if the file is new (not in DB), re-index it.
+pub fn auto_refresh(
+    store: &SqliteGraphStore,
+    repo_config: &RepoConfig,
+    registry: &eagraph_parser::LanguageRegistry,
+) -> Result<()> {
+    let all_files = collect_files(&repo_config.root, &repo_config.include, &repo_config.exclude)?;
+
+    // Get existing file records from DB
+    let existing: std::collections::HashMap<PathBuf, u64> = store
+        .get_all_file_records()
+        .map_err(|e| anyhow::anyhow!("{}", e))?
+        .into_iter()
+        .map(|r| (r.path, r.last_indexed))
+        .collect();
+
+    // Find stale or new files by checking mtime
+    let mut stale_files = Vec::new();
+    for file_path in &all_files {
+        let rel_path = file_path
+            .strip_prefix(&repo_config.root)
+            .unwrap_or(file_path);
+
+        // Check if we have a grammar for this file
+        if registry.extractor_for(file_path).is_none() {
+            continue;
+        }
+
+        let mtime = match std::fs::metadata(file_path) {
+            Ok(m) => m.modified().ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+            Err(_) => continue,
+        };
+
+        match existing.get(rel_path) {
+            Some(last_indexed) if mtime <= *last_indexed => {} // up to date
+            _ => stale_files.push(file_path.clone()), // stale or new
+        }
+    }
+
+    // Check for deleted files (in DB but not on disk)
+    let disk_files: std::collections::HashSet<&Path> = all_files.iter().map(|p| p.as_path()).collect();
+    for (db_path, _) in &existing {
+        let abs = repo_config.root.join(db_path);
+        if !disk_files.contains(abs.as_path()) {
+            let _ = store.delete_file_data(db_path);
+        }
+    }
+
+    if stale_files.is_empty() {
+        return Ok(());
+    }
+
+    let count = stale_files.len();
+
+    // Parse stale files
+    let parsed: Vec<ParsedFile> = stale_files
+        .iter()
+        .filter_map(|file_path| {
+            let rel_path = file_path.strip_prefix(&repo_config.root).unwrap_or(file_path);
+            let source = std::fs::read_to_string(file_path).ok()?;
+            let hash = content_hash(&source);
+            let extractor = registry.extractor_for(file_path)?;
+            let (symbols, raw_edges) = extractor.extract(file_path, &source).ok()?;
+            Some(ParsedFile {
+                rel_path: rel_path.to_path_buf(),
+                content_hash: hash,
+                symbols,
+                raw_edges,
+            })
+        })
+        .collect();
+
+    if parsed.is_empty() {
+        return Ok(());
+    }
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock before unix epoch")
+        .as_secs();
+
+    store.begin_transaction().map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    // Delete old data + insert symbols
+    for p in &parsed {
+        let _ = store.delete_file_data(&p.rel_path);
+        if !p.symbols.is_empty() {
+            store.upsert_symbols(&p.symbols).map_err(|e| anyhow::anyhow!("{}", e))?;
+        }
+        store.upsert_file_record(&FileRecord {
+            path: p.rel_path.clone(),
+            content_hash: p.content_hash.clone(),
+            last_indexed: now,
+        }).map_err(|e| anyhow::anyhow!("{}", e))?;
+    }
+
+    // Resolve edges against full symbol table
+    let all_symbols = store.get_all_symbols().map_err(|e| anyhow::anyhow!("{}", e))?;
+    let all_raw: Vec<eagraph_core::RawEdge> = parsed.iter().flat_map(|p| p.raw_edges.clone()).collect();
+    let resolved = eagraph_core::RawEdge::resolve(&all_raw, &all_symbols);
+
+    if !resolved.is_empty() {
+        store.upsert_edges(&resolved).map_err(|e| anyhow::anyhow!("{}", e))?;
+    }
+
+    store.commit_transaction().map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    let sym_count: usize = parsed.iter().map(|p| p.symbols.len()).sum();
+    eprintln!(
+        "  [auto] {} files refreshed, {} symbols, {} edges",
+        count, sym_count, resolved.len()
+    );
+
+    Ok(())
+}
