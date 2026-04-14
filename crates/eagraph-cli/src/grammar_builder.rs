@@ -220,6 +220,84 @@ fn build_grammar(name: &str, entry: &RegistryEntry, grammars_dir: &Path) -> Resu
     Ok(())
 }
 
+pub fn cmd_grammars_check(config: &eagraph_core::Config, grammars_dir: &Path) -> Result<()> {
+    let registry = load_registry()?;
+    let bundled = bundled_grammars_dir();
+
+    // Build extension → language name map from registry
+    let mut ext_to_lang: BTreeMap<String, String> = BTreeMap::new();
+    for (name, _) in &registry {
+        for ext in read_extensions(&bundled, name) {
+            ext_to_lang.insert(ext, name.clone());
+        }
+    }
+
+    // Scan all repo roots for file extensions
+    let mut found_extensions: BTreeMap<String, usize> = BTreeMap::new();
+    for repo in &config.repos {
+        if !repo.root.exists() {
+            continue;
+        }
+        let walker = ignore::WalkBuilder::new(&repo.root)
+            .hidden(true)
+            .git_ignore(true)
+            .build();
+        for entry in walker.flatten() {
+            if let Some(ext) = entry.path().extension().and_then(|e| e.to_str()) {
+                *found_extensions.entry(ext.to_string()).or_insert(0) += 1;
+            }
+        }
+    }
+
+    // Match found extensions against known languages
+    let mut need_install: BTreeMap<String, Vec<(String, usize)>> = BTreeMap::new();
+    let mut covered: BTreeMap<String, Vec<(String, usize)>> = BTreeMap::new();
+
+    for (ext, count) in &found_extensions {
+        if let Some(lang) = ext_to_lang.get(ext) {
+            if is_installed(grammars_dir, lang) {
+                covered
+                    .entry(lang.clone())
+                    .or_default()
+                    .push((ext.clone(), *count));
+            } else {
+                need_install
+                    .entry(lang.clone())
+                    .or_default()
+                    .push((ext.clone(), *count));
+            }
+        }
+        // Don't report unknown extensions — too noisy (images, configs, etc.)
+    }
+
+    if !covered.is_empty() {
+        println!("Covered (grammar installed):");
+        for (lang, exts) in &covered {
+            let detail: Vec<String> = exts.iter().map(|(e, c)| format!(".{} ({})", e, c)).collect();
+            println!("  {:<14} {}", lang, detail.join(", "));
+        }
+        println!();
+    }
+
+    if !need_install.is_empty() {
+        println!("Missing (grammar available but not installed):");
+        for (lang, exts) in &need_install {
+            let detail: Vec<String> = exts.iter().map(|(e, c)| format!(".{} ({})", e, c)).collect();
+            println!("  {:<14} {}", lang, detail.join(", "));
+        }
+        println!();
+        let names: Vec<&str> = need_install.keys().map(|s| s.as_str()).collect();
+        println!("Install with:");
+        println!("  eagraph grammars add {}", names.join(" "));
+    } else if covered.is_empty() {
+        println!("No recognized source files found in configured repos.");
+    } else {
+        println!("All detected languages have grammars installed.");
+    }
+
+    Ok(())
+}
+
 fn check_compiler() -> Result<()> {
     let status = Command::new("cc")
         .arg("--version")

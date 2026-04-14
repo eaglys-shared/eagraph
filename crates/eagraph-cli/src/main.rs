@@ -23,11 +23,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Index all repos (or a single repo)
+    /// Index a repo (or all with --all)
     Index {
-        /// Index only this repo
-        #[arg(long)]
+        /// Repo name to index
         repo: Option<String>,
+        /// Index all configured repos
+        #[arg(long)]
+        all: bool,
         /// Re-index all files, ignoring content hashes
         #[arg(long)]
         force: bool,
@@ -60,18 +62,21 @@ enum GrammarsAction {
     },
     /// Show available and installed grammars
     List,
+    /// Scan repos and recommend grammars to install
+    Check,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let grammars_dir = config_loader::resolve_grammars_dir(None)?;
 
-    // Grammars commands don't need config.toml
+    // These grammars subcommands don't need config.toml
     if let Command::Grammars { action } = &cli.command {
-        return match action {
-            GrammarsAction::Add { names } => grammar_builder::cmd_grammars_add(names, &grammars_dir),
-            GrammarsAction::List => grammar_builder::cmd_grammars_list(&grammars_dir),
-        };
+        match action {
+            GrammarsAction::Add { names } => return grammar_builder::cmd_grammars_add(names, &grammars_dir),
+            GrammarsAction::List => return grammar_builder::cmd_grammars_list(&grammars_dir),
+            GrammarsAction::Check => {} // needs config, fall through
+        }
     }
 
     let config_path = config_loader::resolve_config_path(cli.config.as_deref())?;
@@ -99,21 +104,41 @@ fn main() -> Result<()> {
     let data_dir = config_loader::resolve_data_dir(None)?;
 
     match cli.command {
-        Command::Index { repo, force } => cmd_index(&config, &data_dir, &grammars_dir, repo.as_deref(), force),
+        Command::Index { repo, all, force } => cmd_index(&config, &data_dir, &grammars_dir, repo.as_deref(), all, force),
         Command::Status => cmd_status(&config, &data_dir),
         Command::Query { name, repo } => cmd_query(&config, &data_dir, &name, repo.as_deref()),
+        Command::Grammars { action: GrammarsAction::Check } => {
+            grammar_builder::cmd_grammars_check(&config, &grammars_dir)
+        }
         Command::Config | Command::Grammars { .. } => unreachable!(),
     }
 }
 
-fn cmd_index(config: &eagraph_core::Config, data_dir: &PathBuf, grammars_dir: &PathBuf, repo_filter: Option<&str>, force: bool) -> Result<()> {
+fn cmd_index(config: &eagraph_core::Config, data_dir: &PathBuf, grammars_dir: &PathBuf, repo_filter: Option<&str>, all: bool, force: bool) -> Result<()> {
+    if repo_filter.is_none() && !all {
+        eprintln!("Specify a repo name or use --all:");
+        eprintln!();
+        eprintln!("  eagraph index <repo-name>");
+        eprintln!("  eagraph index --all");
+        eprintln!();
+        if !config.repos.is_empty() {
+            eprintln!("Configured repos:");
+            for r in &config.repos {
+                eprintln!("  {}", r.name);
+            }
+        }
+        std::process::exit(1);
+    }
+
     let registry = eagraph_parser::LanguageRegistry::from_dir(grammars_dir)
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let extensions = registry.supported_extensions();
     if extensions.is_empty() {
-        println!("No grammars found in {}. Add .so + .scm + .toml files to enable parsing.", grammars_dir.display());
-        return Ok(());
+        eprintln!("No grammars installed. Run:");
+        eprintln!();
+        eprintln!("  eagraph grammars add python typescript  # or whichever languages you need");
+        std::process::exit(1);
     }
 
     let repos: Vec<_> = config
