@@ -155,7 +155,19 @@ svg.on("click", () => { selectedNode = null; highlight(getVisible()); setInfo(nu
 
 document.getElementById("search").addEventListener("input", function() {
   const q = this.value.toLowerCase();
-  nodeG.selectAll("g.node").classed("search-match", d => q && d.name.toLowerCase().includes(q));
+  const hasQuery = q.length > 0;
+  const matches = new Set();
+  nodeG.selectAll("g.node").each(d => {
+    if (hasQuery && d.name.toLowerCase().includes(q)) matches.add(d.id);
+  });
+  nodeG.selectAll("g.node")
+    .classed("search-match", d => matches.has(d.id))
+    .classed("dimmed", d => hasQuery && !matches.has(d.id));
+  linkG.selectAll("line").classed("dimmed", d => {
+    if (!hasQuery) return false;
+    const s = d.source?.id || d.source, t = d.target?.id || d.target;
+    return !matches.has(s) && !matches.has(t);
+  });
 });
 
 document.querySelectorAll(".view-btn").forEach(btn => {
