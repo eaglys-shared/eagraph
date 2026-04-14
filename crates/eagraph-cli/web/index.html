@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0d1117">
+<title>eagraph</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="controls">
+  <select id="repo-switcher" aria-label="Select repository"></select>
+  <div class="sep"></div>
+  <input id="search" type="text" placeholder="Search…" aria-label="Search symbols">
+  <button class="btn view-btn active" data-view="files">Files</button>
+  <button class="btn view-btn" data-view="symbols">Symbols</button>
+  <div class="sep"></div>
+  <span id="kind-filters" role="group" aria-label="Filter by kind"></span>
+</div>
+<div id="stats"></div>
+<div id="info" aria-live="polite">&nbsp;</div>
+<svg role="img" aria-label="Code dependency graph"></svg>
+<script src="/d3.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

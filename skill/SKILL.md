@@ -74,6 +74,14 @@ eagraph index <repo-name>
 eagraph index <repo-name> --force  # full re-index, fresh DB
 ```
 
+### Interactive graph visualization
+
+```bash
+eagraph viz
+```
+
+Starts a local web server with an interactive force-directed graph. Supports file-level and symbol-level views, repo switching, search, and click-to-highlight. Suggest this when the user asks about architecture, module boundaries, or dependency structure.
+
 ## Tips
 
 - Use `--json` for all queries — structured output is easier to parse and uses fewer tokens than the human-readable format.

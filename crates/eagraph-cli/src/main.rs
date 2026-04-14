@@ -1,10 +1,11 @@
 mod config_loader;
 mod grammar_builder;
 mod indexer;
+mod viz;
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use eagraph_core::GraphStore;
@@ -27,6 +28,18 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Create a new config file
+    Init {
+        /// Organization name
+        org: String,
+    },
+    /// Add a repo to the config
+    Add {
+        /// Repo name
+        name: String,
+        /// Path to the repo root
+        path: String,
+    },
     /// Index a repo (or all with --all)
     Index {
         /// Repo name to index
@@ -88,6 +101,12 @@ enum Command {
         #[arg(long)]
         repo: String,
     },
+    /// Open interactive graph visualization in browser
+    Viz {
+        /// Port to serve on
+        #[arg(long, default_value = "3742")]
+        port: u16,
+    },
     /// Print resolved config path and contents
     Config,
     /// Manage tree-sitter grammars
@@ -125,23 +144,18 @@ fn main() -> Result<()> {
 
     let config_path = config_loader::resolve_config_path(cli.config.as_deref())?;
 
-    // Config command doesn't need a loaded config
-    if let Command::Config = &cli.command {
-        return cmd_config(&config_path, &grammars_dir);
+    // Commands that don't need a loaded config
+    match &cli.command {
+        Command::Config => return cmd_config(&config_path, &grammars_dir),
+        Command::Init { org } => return cmd_init(&config_path, org),
+        Command::Add { name, path } => return cmd_add(&config_path, name, path, &grammars_dir),
+        _ => {}
     }
 
     if !config_path.exists() {
-        eprintln!("Config file not found: {}", config_path.display());
+        eprintln!("Config file not found. Run:");
         eprintln!();
-        eprintln!("Create it with:");
-        eprintln!();
-        eprintln!("  [organization]");
-        eprintln!("  name = \"myorg\"");
-        eprintln!();
-        eprintln!("  [[repos]]");
-        eprintln!("  name = \"my-project\"");
-        eprintln!("  root = \"/path/to/my-project\"");
-        eprintln!("  include = [\"**/*.py\"]");
+        eprintln!("  eagraph init <org-name>");
         std::process::exit(1);
     }
     let config = config_loader::load_config(&config_path)?;
@@ -156,10 +170,11 @@ fn main() -> Result<()> {
         Command::Dependents { file, repo, depth } => cmd_dependents(&config, &data_dir, &file, &repo, depth, json),
         Command::Symbols { file, repo } => cmd_symbols(&config, &data_dir, &file, &repo, json),
         Command::Chain { from, to, repo } => cmd_chain(&config, &data_dir, &from, &to, &repo, json),
+        Command::Viz { port } => cmd_viz(&config, &data_dir, port),
         Command::Grammars { action: GrammarsAction::Check } => {
             grammar_builder::cmd_grammars_check(&config, &grammars_dir)
         }
-        Command::Config | Command::Grammars { .. } => unreachable!(),
+        Command::Config | Command::Init { .. } | Command::Add { .. } | Command::Grammars { .. } => unreachable!(),
     }
 }
 
@@ -565,12 +580,179 @@ fn cmd_chain(
     Ok(())
 }
 
+fn cmd_viz(
+    config: &eagraph_core::Config,
+    data_dir: &PathBuf,
+    port: u16,
+) -> Result<()> {
+    let mut repos = Vec::new();
+    for repo_config in &config.repos {
+        match open_repo_store(config, data_dir, &repo_config.name) {
+            Ok((_, store)) => {
+                let symbols = store.get_all_symbols().map_err(|e| anyhow::anyhow!("{}", e))?;
+                let edges = store.get_all_edges().map_err(|e| anyhow::anyhow!("{}", e))?;
+                println!("  {}: {} symbols, {} edges", repo_config.name, symbols.len(), edges.len());
+                repos.push((repo_config.name.clone(), symbols, edges));
+            }
+            Err(_) => {
+                eprintln!("  {}: not indexed, skipping", repo_config.name);
+            }
+        }
+    }
+    if repos.is_empty() {
+        anyhow::bail!("no indexed repos found");
+    }
+    viz::serve(repos, port)
+}
+
 fn resolve_file_path(file: &str, repo_root: &Path) -> PathBuf {
     if Path::new(file).is_absolute() {
         PathBuf::from(file)
     } else {
         repo_root.join(file)
     }
+}
+
+fn cmd_init(config_path: &PathBuf, org: &str) -> Result<()> {
+    if config_path.exists() {
+        anyhow::bail!("Config already exists at {}", config_path.display());
+    }
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let content = format!(
+        "[organization]\nname = \"{}\"\n",
+        org,
+    );
+    std::fs::write(config_path, &content)?;
+    println!("Created {}", config_path.display());
+    println!();
+    println!("Add repos with:");
+    println!("  eagraph add <name> /path/to/repo");
+    Ok(())
+}
+
+fn cmd_add(config_path: &PathBuf, name: &str, path: &str, grammars_dir: &Path) -> Result<()> {
+    let repo_path = std::fs::canonicalize(path)
+        .with_context(|| format!("path not found: {}", path))?;
+
+    if !config_path.exists() {
+        eprintln!("Config file not found. Run:");
+        eprintln!();
+        eprintln!("  eagraph init <org-name>");
+        std::process::exit(1);
+    }
+
+    // Check git repo
+    if !repo_path.join(".git").exists() {
+        eprintln!("warning: {} is not a git repo. Branch detection and .gitignore will not work.", repo_path.display());
+    }
+
+    // Check for duplicate
+    let config = config_loader::load_config(config_path)?;
+    if config.repos.iter().any(|r| r.name == name) {
+        anyhow::bail!("repo '{}' already exists in config", name);
+    }
+
+    let (installed_exts, missing_langs) = scan_repo_extensions(&repo_path, grammars_dir);
+
+    // Include patterns for all detected extensions (installed grammars only)
+    let include = if installed_exts.is_empty() {
+        String::new()
+    } else {
+        let patterns: Vec<String> = installed_exts.iter().map(|e| format!("\"**/*.{}\"", e)).collect();
+        format!("include = [{}]\n", patterns.join(", "))
+    };
+
+    let entry = format!(
+        "\n[[repos]]\nname = \"{}\"\nroot = \"{}\"\n{}",
+        name,
+        repo_path.display(),
+        include,
+    );
+
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(config_path)?;
+    std::io::Write::write_all(&mut file, entry.as_bytes())?;
+
+    println!("Added '{}' at {}", name, repo_path.display());
+    if !installed_exts.is_empty() {
+        println!("  include: {}", installed_exts.iter().map(|e| format!("*.{}", e)).collect::<Vec<_>>().join(", "));
+    }
+
+    // Recommend missing grammars
+    if !missing_langs.is_empty() {
+        let lang_names: Vec<&str> = missing_langs.iter().map(|(lang, _)| lang.as_str()).collect();
+        println!();
+        println!("This repo also has files for languages without grammars installed:");
+        for (lang, ext) in &missing_langs {
+            println!("  {} (*.{})", lang, ext);
+        }
+        println!();
+        println!("Install with:");
+        println!("  eagraph grammars add {}", lang_names.join(" "));
+    }
+
+    // Index immediately
+    let registry = eagraph_parser::LanguageRegistry::from_dir(grammars_dir)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    if registry.supported_extensions().is_empty() {
+        println!();
+        println!("No grammars installed. Run:");
+        println!("  eagraph grammars add python typescript  # or whichever you need");
+        return Ok(());
+    }
+
+    let data_dir = config_loader::resolve_data_dir(None)?;
+    // Reload config to include the newly added repo
+    let config = config_loader::load_config(config_path)?;
+    let repo_config = config.repos.iter().find(|r| r.name == name).expect("just added");
+
+    println!();
+    println!("Indexing {}...", name);
+    match indexer::index_repo(repo_config, &data_dir, &config.organization.name, &registry, false) {
+        Ok(result) => {
+            println!(
+                "  {} files indexed, {} skipped, {} symbols, {} edges",
+                result.files_indexed, result.files_skipped, result.symbols_count, result.edges_count,
+            );
+        }
+        Err(e) => eprintln!("  indexing failed: {}", e),
+    }
+
+    Ok(())
+}
+
+/// Scan a repo for all file extensions. Returns (installed, missing) where
+/// installed = extensions with grammars, missing = extensions in the registry but not installed.
+fn scan_repo_extensions(
+    repo_path: &Path,
+    grammars_dir: &Path,
+) -> (Vec<String>, Vec<(String, String)>) {
+    let installed = grammar_builder::all_supported_extensions(grammars_dir);
+    let ext_to_lang = grammar_builder::bundled_ext_to_lang();
+
+    let mut found_installed = std::collections::BTreeSet::new();
+    let mut found_missing = std::collections::BTreeMap::<String, String>::new();
+
+    let walker = ignore::WalkBuilder::new(repo_path)
+        .hidden(true)
+        .git_ignore(true)
+        .build();
+
+    for entry in walker.flatten() {
+        if let Some(ext) = entry.path().extension().and_then(|e| e.to_str()) {
+            if installed.contains(ext) {
+                found_installed.insert(ext.to_string());
+            } else if let Some(lang) = ext_to_lang.get(ext) {
+                found_missing.insert(lang.clone(), ext.to_string());
+            }
+        }
+    }
+
+    (found_installed.into_iter().collect(), found_missing.into_iter().collect())
 }
 
 // --- Output helpers ---

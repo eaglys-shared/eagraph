@@ -13,7 +13,7 @@ struct RegistryEntry {
 
 type Registry = BTreeMap<String, RegistryEntry>;
 
-fn workspace_root() -> PathBuf {
+pub fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(2)
@@ -87,6 +87,45 @@ fn is_installed(grammars_dir: &Path, name: &str) -> bool {
     let so = grammars_dir.join(format!("{}.so", name));
     let dll = grammars_dir.join(format!("{}.dll", name));
     dylib.exists() || so.exists() || dll.exists()
+}
+
+/// Collect all supported file extensions from installed grammar .toml files.
+pub fn all_supported_extensions(grammars_dir: &Path) -> std::collections::HashSet<String> {
+    let mut exts = std::collections::HashSet::new();
+    if let Ok(entries) = std::fs::read_dir(grammars_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("toml")
+                && path.file_stem().and_then(|s| s.to_str()) != Some("registry")
+            {
+                let name = path.file_stem().unwrap().to_str().unwrap_or("");
+                for ext in read_extensions(grammars_dir, name) {
+                    exts.insert(ext);
+                }
+            }
+        }
+    }
+    exts
+}
+
+/// Build extension → language name map from bundled grammar .toml files.
+pub fn bundled_ext_to_lang() -> std::collections::HashMap<String, String> {
+    let bundled = workspace_root().join("grammars");
+    let mut map = std::collections::HashMap::new();
+    if let Ok(entries) = std::fs::read_dir(&bundled) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("toml") { continue; }
+            let stem = match path.file_stem().and_then(|s| s.to_str()) {
+                Some(s) if s != "registry" => s.to_string(),
+                _ => continue,
+            };
+            for ext in read_extensions(&bundled, &stem) {
+                map.insert(ext, stem.clone());
+            }
+        }
+    }
+    map
 }
 
 fn read_extensions(bundled_dir: &Path, name: &str) -> Vec<String> {

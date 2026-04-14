@@ -32,6 +32,33 @@ impl SqliteGraphStore {
         self.conn()?.execute_batch("ROLLBACK").map_err(map_err)
     }
 
+    pub fn get_all_symbols(&self) -> Result<Vec<Symbol>> {
+        let conn = self.conn()?;
+        let mut stmt = conn
+            .prepare("SELECT id, name, kind, file_path, line_start, line_end, metadata FROM symbols")
+            .map_err(map_err)?;
+        let rows = stmt.query_map([], row_to_symbol).map_err(map_err)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(map_err)
+    }
+
+    pub fn get_all_edges(&self) -> Result<Vec<Edge>> {
+        let conn = self.conn()?;
+        let mut stmt = conn
+            .prepare("SELECT source, target, kind FROM edges")
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(Edge {
+                    source: SymbolId(row.get(0)?),
+                    target: SymbolId(row.get(1)?),
+                    kind: EdgeKind::from_str(&row.get::<_, String>(2)?)
+                        .unwrap_or(EdgeKind::References),
+                })
+            })
+            .map_err(map_err)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(map_err)
+    }
+
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path).map_err(|e| EagraphError::Store(e.to_string()))?;
         Self::init(conn)

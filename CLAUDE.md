@@ -1,6 +1,6 @@
 # eagraph
 
-Multi-repo code knowledge graph served via MCP. Headless Rust server, tree-sitter parsing, SQLite storage.
+Multi-repo code knowledge graph. Tree-sitter parsing, SQLite storage, CLI + Claude Code skill.
 
 ## Architecture
 
@@ -9,48 +9,61 @@ See DESIGN.md for full spec. See MILESTONES.md for implementation roadmap.
 ## Project structure
 
 ```
-eagraph-core           → domain types, traits (GraphStore, CrossRefStore, EmbeddingStore, Enricher)
-eagraph-store-sqlite   → SqliteGraphStore (20 tests)
-eagraph-parser         → generic tree-sitter extractor, dynamic grammar loading (10 tests)
+eagraph-core           → domain types, traits, RawEdge resolution
+eagraph-store-sqlite   → SqliteGraphStore, FK on edges.source + edges.target (20 tests)
+eagraph-parser         → generic tree-sitter extractor, dynamic .so grammar loading (10 tests)
 eagraph-crossref       → cross-repo resolution (stub)
-eagraph-retriever      → ContextRetriever, SnippetReader (stub)
-eagraph-mcp            → MCP server, tool definitions (stub)
-eagraph-cli            → binary: index, status, query, config commands (2 e2e tests)
-grammars/              → .scm + .toml per language (checked in, no .so)
+eagraph-retriever      → get_context, get_dependents, snippet reader
+eagraph-mcp            → MCP server (stub)
+eagraph-cli            → all commands (2 e2e tests)
+grammars/              → .scm + .toml for 19 languages, registry.toml for grammar repos
+skill/                 → Claude Code skill (symlink to ~/.claude/skills/eagraph)
 tests/fixtures/
-  grammars-src/        → vendored C sources for compiling test .so files
+  grammars-src/        → vendored C sources for test .so compilation
   sample-repo/         → Python fixture project
 ```
 
-Only `eagraph-cli` knows about concrete implementations. Everything else codes against traits.
-
 ## Current state
 
-**M4 complete.** Next: M5 (retriever + MCP server).
+**M5 complete** (retriever + CLI + skill + viz). Next: M6 (file watcher + MCP).
 
-Parser is fully data-driven: grammars loaded as .so/.dylib at runtime via `libloading`. Zero language-specific Rust code or crate dependencies. Adding a language = 3 files (.so + .scm + .toml) in the grammars directory, no recompilation.
+## CLI commands
+
+```
+eagraph init <org>                         # create config
+eagraph add <name> <path>                  # add repo, detect languages, auto-index
+eagraph index <repo> [--force] [--all]     # index repo(s)
+eagraph status                             # repo/branch/symbol counts
+eagraph query <name> [--repo X]            # search symbols
+eagraph context <name> --repo X [--depth]  # symbol neighborhood + snippets
+eagraph dependents <file> --repo X         # reverse impact analysis
+eagraph symbols <file> --repo X            # file table of contents
+eagraph chain <from> <to> --repo X         # shortest call path
+eagraph viz --repo X                       # interactive graph in browser
+eagraph config                             # print config path
+eagraph grammars add <lang>...             # compile + install grammar
+eagraph grammars list                      # show installed/available
+eagraph grammars check                     # recommend grammars for repos
+```
+
+All query commands support `--json` global flag.
 
 ## Key conventions
 
-- **Grammars**: loaded from disk at runtime (`LanguageRegistry::from_dir`). No compiled-in grammars.
-- **SQL**: lives in `.sql` files under `eagraph-store-sqlite/sql/`, embedded via `include_str!`
-- **Edges table**: no FK constraints (edges can reference symbols in other files)
-- **Storage**: config/data in OS app directory (`dirs` crate), never inside repos
-- **DB layout**: one SQLite DB per repo per branch: `data/{org}/{repo}/{branch}.db`
-- **Branch names**: `/` → `--` (e.g. `feature/auth` → `feature--auth.db`)
-- **Method names**: class-qualified (`ClassName.method_name`)
-- **Test grammars**: build.rs compiles C sources from `tests/fixtures/grammars-src/` into .so, tests load them via dlopen (same path as production)
+- **Grammars**: .so/.dylib loaded at runtime via `libloading`. Zero compiled-in grammars.
+- **Grammar config**: `grammars/registry.toml` maps names to GitHub repos. `.scm` + `.toml` per language.
+- **Edge resolution**: extractor produces `RawEdge` (target is a name string). Indexer resolves to `Edge` (target is a SymbolId) via exact name match. `self.method()` resolves to `ClassName.method` using AST scope. Unresolvable edges dropped.
+- **FK**: `edges.source` and `edges.target` both reference `symbols(id)`. Two-pass write: symbols first, edges second.
+- **Indexing**: parallel parsing (rayon), single-transaction batch writes. `--force` deletes DB.
+- **SQL**: `.sql` files embedded via `include_str!`
+- **Storage**: OS app directory (`dirs` crate), never inside repos
+- **DB layout**: `data/{org}/{repo}/{branch}.db`
+- **File collection**: respects `.gitignore` via `ignore` crate
+- **Test grammars**: build.rs compiles vendored C → .so, tests load via dlopen
 
-## Commands
+## Build and test
 
 ```
-cargo check --workspace              # verify everything compiles
-cargo test --workspace               # run all tests (32 total)
-cargo run -p eagraph-cli -- index    # index repos from config
-cargo run -p eagraph-cli -- status   # show repo/branch/symbol counts
-cargo run -p eagraph-cli -- query X  # search for symbol by name
-cargo run -p eagraph-cli -- config   # print config and grammars paths
+cargo check --workspace
+cargo test --workspace               # 32 tests
 ```
-
-Config: `--config` flag > `EAGRAPH_CONFIG` env > OS default.
-Grammars: `EAGRAPH_GRAMMARS` env > `~/.config/eagraph/grammars/`.
