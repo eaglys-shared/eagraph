@@ -29,6 +29,7 @@
 ; Method invocations
 (invocation_expression
   function: (member_access_expression
+    expression: (_) @method_call.object
     name: (identifier) @method_call.name)) @method_call.def
 
 ; Function calls

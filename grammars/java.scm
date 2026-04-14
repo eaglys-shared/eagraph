@@ -29,6 +29,7 @@
 
 ; Method invocations
 (method_invocation
+  object: (_) @method_call.object
   name: (identifier) @method_call.name) @method_call.def
 
 ; Import declarations

@@ -4,7 +4,7 @@ use std::path::Path;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language as TsLanguage, Node, Parser, Query, QueryCursor};
 
-use eagraph_core::{Edge, EdgeKind, EagraphError, Symbol, SymbolKind};
+use eagraph_core::{EdgeKind, EagraphError, RawEdge, Symbol, SymbolKind};
 
 use crate::symbol_id::make_symbol_id;
 use crate::LanguageExtractor;
@@ -63,6 +63,7 @@ struct RawFunc {
 struct RawCall {
     byte_pos: usize,
     callee_name: String,
+    receiver: Option<String>,
 }
 
 struct RawImport {
@@ -88,7 +89,7 @@ impl LanguageExtractor for GenericExtractor {
         &self,
         file_path: &Path,
         source: &str,
-    ) -> eagraph_core::Result<(Vec<Symbol>, Vec<Edge>)> {
+    ) -> eagraph_core::Result<(Vec<Symbol>, Vec<RawEdge>)> {
         let mut parser = Parser::new();
         parser
             .set_language(&self.config.ts_language)
@@ -150,7 +151,7 @@ impl LanguageExtractor for GenericExtractor {
         }
         drop(matches);
 
-        // Now build symbols and edges from raw data
+        // Now build symbols and raw edges from extracted data
         let mut symbols = Vec::new();
         let mut edges = Vec::new();
 
@@ -161,10 +162,9 @@ impl LanguageExtractor for GenericExtractor {
         for c in &classes {
             symbols.push(c.sym.clone());
             for base in &c.base_names {
-                let base_id = make_symbol_id(file_path, base, "class");
-                edges.push(Edge {
+                edges.push(RawEdge {
                     source: c.sym.id.clone(),
-                    target: base_id,
+                    target_name: base.clone(),
                     kind: EdgeKind::Inherits,
                 });
             }
@@ -199,14 +199,41 @@ impl LanguageExtractor for GenericExtractor {
         let file_scope_id =
             make_symbol_id(file_path, file_path.to_str().unwrap_or(""), "module");
 
+        // Emit file-level module symbol so it can be an edge source
+        symbols.push(Symbol {
+            id: file_scope_id.clone(),
+            name: file_path.to_str().unwrap_or("").to_string(),
+            kind: SymbolKind::Module,
+            file_path: file_path.to_path_buf(),
+            line_start: 1,
+            line_end: 1,
+            metadata: None,
+        });
+
         // Process calls
         for c in &calls {
             let caller_id = find_enclosing_id(&func_ranges, c.byte_pos)
                 .unwrap_or_else(|| file_scope_id.clone());
-            let callee_id = make_symbol_id(file_path, &c.callee_name, "function");
-            edges.push(Edge {
+
+            // Build qualified target name from receiver context
+            let target_name = match &c.receiver {
+                Some(recv) if recv == "self" || recv == "cls" => {
+                    // self.method() inside class Foo → target is "Foo.method"
+                    match find_enclosing_name(&classes, c.byte_pos) {
+                        Some(class_name) => format!("{}.{}", class_name, c.callee_name),
+                        None => c.callee_name.clone(),
+                    }
+                }
+                Some(recv) => {
+                    // obj.method() → target is "obj.method" (best effort)
+                    format!("{}.{}", recv, c.callee_name)
+                }
+                None => c.callee_name.clone(),
+            };
+
+            edges.push(RawEdge {
                 source: caller_id,
-                target: callee_id,
+                target_name,
                 kind: EdgeKind::Calls,
             });
         }
@@ -237,14 +264,14 @@ impl LanguageExtractor for GenericExtractor {
                 } else {
                     format!("{}{}{}", fi.module_name, sep, imported)
                 };
-                let target_id = make_symbol_id(file_path, &full_path, "module");
-                edges.push(Edge {
+                let import_id = make_symbol_id(file_path, &full_path, "module");
+                edges.push(RawEdge {
                     source: scope_id.clone(),
-                    target: target_id.clone(),
+                    target_name: full_path.clone(),
                     kind: EdgeKind::Imports,
                 });
                 symbols.push(Symbol {
-                    id: target_id,
+                    id: import_id,
                     name: full_path,
                     kind: SymbolKind::Module,
                     file_path: file_path.to_path_buf(),
@@ -336,15 +363,20 @@ fn extract_raw_call(
 ) -> Option<RawCall> {
     let name_capture = format!("{}.name", prefix);
     let def_capture = format!("{}.def", prefix);
+    let obj_capture = format!("{}.object", prefix);
     let name_node = get_capture(names, m, &name_capture)?;
     let def_node = get_capture(names, m, &def_capture);
     let callee = name_node.utf8_text(src).ok()?.to_string();
     if callee.is_empty() {
         return None;
     }
+    let receiver = get_capture(names, m, &obj_capture)
+        .and_then(|n| n.utf8_text(src).ok())
+        .map(|s| s.to_string());
     Some(RawCall {
         byte_pos: def_node.map(|n| n.start_byte()).unwrap_or(0),
         callee_name: callee,
+        receiver,
     })
 }
 

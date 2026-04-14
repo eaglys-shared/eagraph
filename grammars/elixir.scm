@@ -20,6 +20,7 @@
 ; Remote calls (Module.function)
 (call
   target: (dot
+    left: (_) @method_call.object
     right: (identifier) @method_call.name)) @method_call.def
 
 ; Alias (import/require/use)

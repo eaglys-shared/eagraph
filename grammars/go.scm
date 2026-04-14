@@ -18,6 +18,7 @@
 ; Method calls
 (call_expression
   function: (selector_expression
+    operand: (_) @method_call.object
     field: (field_identifier) @method_call.name)) @method_call.def
 
 ; Import specs

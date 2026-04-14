@@ -27,6 +27,7 @@
 ; Method calls
 (call_expression
   function: (member_expression
+    object: (_) @method_call.object
     property: (property_identifier) @method_call.name)) @method_call.def
 
 ; Import statements: import x from 'y'

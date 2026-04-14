@@ -7,7 +7,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 
-use eagraph_core::{Edge, FileRecord, GraphStore, RepoConfig, Symbol};
+use eagraph_core::{FileRecord, GraphStore, RawEdge, RepoConfig, Symbol};
 use eagraph_parser::LanguageExtractor;
 use eagraph_store_sqlite::SqliteGraphStore;
 
@@ -25,7 +25,7 @@ struct ParsedFile {
     rel_path: PathBuf,
     content_hash: String,
     symbols: Vec<Symbol>,
-    edges: Vec<Edge>,
+    raw_edges: Vec<RawEdge>,
 }
 
 pub fn index_repo(
@@ -42,6 +42,11 @@ pub fn index_repo(
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating {}", parent.display()))?;
+    }
+
+    if force && db_path.exists() {
+        std::fs::remove_file(&db_path)
+            .with_context(|| format!("removing {}", db_path.display()))?;
     }
 
     let store = SqliteGraphStore::open(&db_path)
@@ -92,21 +97,17 @@ pub fn index_repo(
         .as_secs();
 
     let mut total_symbols = 0usize;
-    let mut total_edges = 0usize;
+    let total_edges;
 
     store.begin_transaction().map_err(|e| anyhow::anyhow!("{}", e))?;
 
+    // Pass 1: delete old data + insert all symbols and file records
     for p in &parsed {
         let _ = store.delete_file_data(&p.rel_path);
 
         if !p.symbols.is_empty() {
             store
                 .upsert_symbols(&p.symbols)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
-        }
-        if !p.edges.is_empty() {
-            store
-                .upsert_edges(&p.edges)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
         }
         store
@@ -118,7 +119,18 @@ pub fn index_repo(
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
         total_symbols += p.symbols.len();
-        total_edges += p.edges.len();
+    }
+
+    // Pass 2: resolve raw edges → real edges
+    let all_symbols: Vec<Symbol> = parsed.iter().flat_map(|p| p.symbols.clone()).collect();
+    let all_raw: Vec<RawEdge> = parsed.iter().flat_map(|p| p.raw_edges.clone()).collect();
+    let all_resolved = RawEdge::resolve(&all_raw, &all_symbols);
+    total_edges = all_resolved.len();
+
+    if !all_resolved.is_empty() {
+        store
+            .upsert_edges(&all_resolved)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
     }
 
     store.commit_transaction().map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -159,7 +171,7 @@ fn parse_one(
 
     let extractor = registry.extractor_for(file_path)?;
 
-    let (symbols, edges) = match extractor.extract(file_path, &source) {
+    let (symbols, raw_edges) = match extractor.extract(file_path, &source) {
         Ok(r) => r,
         Err(e) => {
             pb.suspend(|| eprintln!("  skip {}: {}", rel_path.display(), e));
@@ -171,7 +183,7 @@ fn parse_one(
         rel_path: rel_path.to_path_buf(),
         content_hash: hash,
         symbols,
-        edges,
+        raw_edges,
     })
 }
 

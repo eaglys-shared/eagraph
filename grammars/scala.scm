@@ -25,6 +25,7 @@
 ; Method calls
 (call_expression
   function: (field_expression
+    value: (_) @method_call.object
     field: (identifier) @method_call.name)) @method_call.def
 
 ; Import statements

@@ -28,6 +28,7 @@
 
 ; Method calls
 (member_call_expression
+  object: (_) @method_call.object
   name: (name) @method_call.name) @method_call.def
 
 ; Use declarations (imports)

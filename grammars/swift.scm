@@ -33,6 +33,7 @@
 ; Method calls
 (call_expression
   (navigation_expression
+    (_) @method_call.object
     (simple_identifier) @method_call.name)) @method_call.def
 
 ; Import declarations

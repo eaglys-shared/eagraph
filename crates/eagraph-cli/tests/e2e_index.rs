@@ -127,24 +127,23 @@ fn index_and_query_sample_repo() {
 
     assert!(files.len() >= 3, "expected at least 3 .py files, got {}", files.len());
 
-    let mut total_symbols = 0;
-    let mut total_edges = 0;
+    let mut all_symbols = Vec::new();
+    let mut all_raw_edges = Vec::new();
 
     for file_path in &files {
         let source = std::fs::read_to_string(file_path).unwrap();
-        let (symbols, edges) = extractor.extract(file_path, &source).unwrap();
-        total_symbols += symbols.len();
-        total_edges += edges.len();
-        if !symbols.is_empty() {
-            store.upsert_symbols(&symbols).unwrap();
-        }
-        if !edges.is_empty() {
-            store.upsert_edges(&edges).unwrap();
-        }
+        let (symbols, raw_edges) = extractor.extract(file_path, &source).unwrap();
+        all_symbols.extend(symbols);
+        all_raw_edges.extend(raw_edges);
     }
 
-    assert!(total_symbols > 0, "no symbols extracted");
-    assert!(total_edges > 0, "no edges extracted");
+    assert!(!all_symbols.is_empty(), "no symbols extracted");
+    assert!(!all_raw_edges.is_empty(), "no raw edges extracted");
+
+    let resolved_edges = eagraph_core::RawEdge::resolve(&all_raw_edges, &all_symbols);
+
+    store.upsert_symbols(&all_symbols).unwrap();
+    store.upsert_edges(&resolved_edges).unwrap();
 
     let results = store.search_symbols("process_document", None).unwrap();
     assert!(!results.is_empty(), "process_document not found");
@@ -179,10 +178,9 @@ fn reindex_skips_unchanged() {
 
     let file = root.join("src/utils.py");
     let source = std::fs::read_to_string(&file).unwrap();
-    let (symbols, edges) = extractor.extract(&file, &source).unwrap();
+    let (symbols, _raw_edges) = extractor.extract(&file, &source).unwrap();
 
     store.upsert_symbols(&symbols).unwrap();
-    store.upsert_edges(&edges).unwrap();
 
     let hash = format!("{:x}", sha2::Digest::finalize(sha2::Digest::chain_update(
         sha2::Sha256::new(), source.as_bytes()

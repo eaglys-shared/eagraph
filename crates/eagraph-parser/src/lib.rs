@@ -7,14 +7,15 @@ mod tests;
 use std::collections::HashMap;
 use std::path::Path;
 
-use eagraph_core::{Edge, EagraphError, Result, Symbol};
+use eagraph_core::{EagraphError, RawEdge, Result, Symbol};
 
 use extractor::{GenericExtractor, LanguageConfig};
 
 /// Trait for language-specific symbol/edge extraction.
+/// Returns symbols and unresolved edges (target is a name, not a resolved ID).
 pub trait LanguageExtractor: Send + Sync {
     fn language_name(&self) -> &str;
-    fn extract(&self, file_path: &Path, source: &str) -> Result<(Vec<Symbol>, Vec<Edge>)>;
+    fn extract(&self, file_path: &Path, source: &str) -> Result<(Vec<Symbol>, Vec<RawEdge>)>;
 }
 
 /// Language registry: maps file extensions to extractors.
@@ -154,7 +155,7 @@ pub fn parse_file_with(
     registry: &LanguageRegistry,
     file_path: &Path,
     source: &str,
-) -> Result<(Vec<Symbol>, Vec<Edge>)> {
+) -> Result<(Vec<Symbol>, Vec<RawEdge>)> {
     match registry.extractor_for(file_path) {
         Some(ext) => ext.extract(file_path, source),
         None => Err(EagraphError::Parser(format!(

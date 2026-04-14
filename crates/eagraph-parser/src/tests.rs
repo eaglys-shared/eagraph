@@ -10,7 +10,7 @@ mod tests {
         PathBuf::from(env!("OUT_DIR")).join("test_grammars")
     }
 
-    fn parse(source: &str) -> (Vec<eagraph_core::Symbol>, Vec<eagraph_core::Edge>) {
+    fn parse(source: &str) -> (Vec<eagraph_core::Symbol>, Vec<eagraph_core::RawEdge>) {
         let grammars_dir = test_grammars_dir();
         assert!(
             grammars_dir.join("python.toml").exists(),
@@ -33,7 +33,7 @@ mod tests {
     }
 
     fn has_edge(
-        edges: &[eagraph_core::Edge],
+        edges: &[eagraph_core::RawEdge],
         source_name: &str,
         target_name: &str,
         kind: EdgeKind,
@@ -41,10 +41,9 @@ mod tests {
     ) -> bool {
         edges.iter().any(|e| {
             let src = symbols.iter().find(|s| s.id == e.source);
-            let tgt = symbols.iter().find(|s| s.id == e.target);
-            match (src, tgt) {
-                (Some(s), Some(t)) => s.name == source_name && t.name == target_name && e.kind == kind,
-                _ => false,
+            match src {
+                Some(s) => s.name == source_name && e.target_name == target_name && e.kind == kind,
+                None => false,
             }
         })
     }

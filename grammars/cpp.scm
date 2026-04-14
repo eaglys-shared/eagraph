@@ -36,6 +36,7 @@
 ; Method calls
 (call_expression
   function: (field_expression
+    argument: (_) @method_call.object
     field: (field_identifier) @method_call.name)) @method_call.def
 
 ; Includes

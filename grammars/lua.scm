@@ -23,6 +23,7 @@
 ; Method calls
 (function_call
   name: (method_index_expression
+    table: (_) @method_call.object
     method: (identifier) @method_call.name)) @method_call.def
 
 ; Require calls

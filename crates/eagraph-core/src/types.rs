@@ -137,6 +137,39 @@ pub struct Edge {
     pub kind: EdgeKind,
 }
 
+/// An edge produced by the extractor before resolution.
+/// The target is a name string, not a resolved SymbolId.
+/// The indexer resolves these into `Edge` after all symbols are collected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawEdge {
+    pub source: SymbolId,
+    pub target_name: String,
+    pub kind: EdgeKind,
+}
+
+impl RawEdge {
+    /// Resolve raw edges into real edges using a name → SymbolId lookup.
+    /// Edges whose target_name doesn't match any symbol are dropped.
+    pub fn resolve(raw_edges: &[RawEdge], symbols: &[Symbol]) -> Vec<Edge> {
+        let name_to_id: std::collections::HashMap<&str, &SymbolId> = symbols
+            .iter()
+            .map(|s| (s.name.as_str(), &s.id))
+            .collect();
+
+        raw_edges
+            .iter()
+            .filter_map(|re| {
+                let tid = name_to_id.get(re.target_name.as_str())?;
+                Some(Edge {
+                    source: re.source.clone(),
+                    target: (*tid).clone(),
+                    kind: re.kind,
+                })
+            })
+            .collect()
+    }
+}
+
 /// A resolved cross-repo edge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CrossRepoEdge {

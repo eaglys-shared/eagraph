@@ -25,5 +25,6 @@
 ; Method calls: obj.method()
 (call
   function: (attribute
+    object: (_) @method_call.object
     attribute: (identifier) @method_call.name)
   arguments: (argument_list) @method_call.args) @method_call.def

@@ -9,8 +9,8 @@ CREATE TABLE IF NOT EXISTS symbols (
 );
 
 CREATE TABLE IF NOT EXISTS edges (
-    source      TEXT NOT NULL,
-    target      TEXT NOT NULL,
+    source      TEXT NOT NULL REFERENCES symbols(id),
+    target      TEXT NOT NULL REFERENCES symbols(id),
     kind        TEXT NOT NULL,
     PRIMARY KEY (source, target, kind)
 );
