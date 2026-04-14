@@ -19,14 +19,29 @@ pub struct LanguageConfig {
 }
 
 /// Generic tree-sitter extractor driven by .scm queries and LanguageConfig.
-#[derive(Clone)]
+/// The Query is compiled once at construction and reused for every file.
 pub struct GenericExtractor {
     config: LanguageConfig,
+    query: Query,
+}
+
+impl Clone for GenericExtractor {
+    fn clone(&self) -> Self {
+        // Query doesn't implement Clone, so recompile from source.
+        // This only happens when building the registry (once per extension alias).
+        Self {
+            config: self.config.clone(),
+            query: Query::new(&self.config.ts_language, &self.config.queries)
+                .expect("query was valid at construction"),
+        }
+    }
 }
 
 impl GenericExtractor {
-    pub fn new(config: LanguageConfig) -> Self {
-        Self { config }
+    pub fn new(config: LanguageConfig) -> std::result::Result<Self, String> {
+        let query = Query::new(&config.ts_language, &config.queries)
+            .map_err(|e| format!("query compile for '{}': {:?}", config.name, e))?;
+        Ok(Self { config, query })
     }
 }
 
@@ -83,11 +98,8 @@ impl LanguageExtractor for GenericExtractor {
             .parse(source, None)
             .ok_or_else(|| EagraphError::Parser("parse returned None".into()))?;
 
-        let query = Query::new(&self.config.ts_language, &self.config.queries)
-            .map_err(|e| EagraphError::Parser(format!("query compile: {:?}", e)))?;
-
         let src = source.as_bytes();
-        let capture_names = query.capture_names();
+        let capture_names = self.query.capture_names();
 
         // Single pass: stream matches and extract raw data
         let mut classes = Vec::new();
@@ -97,7 +109,7 @@ impl LanguageExtractor for GenericExtractor {
         let mut from_imports = Vec::new();
 
         let mut cursor = QueryCursor::new();
-        let mut matches = cursor.matches(&query, tree.root_node(), src);
+        let mut matches = cursor.matches(&self.query, tree.root_node(), src);
         while let Some(m) = matches.next() {
             let prefix = match m.captures.first() {
                 Some(c) => {

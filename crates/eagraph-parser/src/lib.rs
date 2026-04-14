@@ -67,7 +67,13 @@ impl LanguageRegistry {
 
             match load_language(grammars_dir, &lang_name) {
                 Ok((config, extensions)) => {
-                    let extractor = GenericExtractor::new(config);
+                    let extractor = match GenericExtractor::new(config) {
+                        Ok(e) => e,
+                        Err(e) => {
+                            eprintln!("warning: skipping grammar '{}': {}", lang_name, e);
+                            continue;
+                        }
+                    };
                     for ext in extensions {
                         extractors.insert(ext, extractor.clone());
                     }

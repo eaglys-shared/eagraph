@@ -31,6 +31,7 @@ rusqlite = { version = "0.35", features = ["bundled"] }
 tree-sitter = "0.25"
 ignore = "0.4"
 indicatif = "0.17"
+rayon = "1"
 libloading = "0.9"
 clap = { version = "4", features = ["derive"] }
 toml = "0.8"

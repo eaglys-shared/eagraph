@@ -1,11 +1,13 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
+use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 
-use eagraph_core::{FileRecord, GraphStore, RepoConfig};
+use eagraph_core::{Edge, FileRecord, GraphStore, RepoConfig, Symbol};
 use eagraph_parser::LanguageExtractor;
 use eagraph_store_sqlite::SqliteGraphStore;
 
@@ -16,6 +18,14 @@ pub struct IndexResult {
     pub files_skipped: usize,
     pub symbols_count: usize,
     pub edges_count: usize,
+}
+
+/// Result of parsing a single file (produced in parallel, consumed sequentially).
+struct ParsedFile {
+    rel_path: PathBuf,
+    content_hash: String,
+    symbols: Vec<Symbol>,
+    edges: Vec<Edge>,
 }
 
 pub fn index_repo(
@@ -47,90 +57,122 @@ pub fn index_repo(
             .progress_chars("=> "),
     );
 
-    let mut result = IndexResult {
-        files_indexed: 0,
-        files_skipped: 0,
-        symbols_count: 0,
-        edges_count: 0,
-    };
+    let skipped = AtomicUsize::new(0);
 
-    for file_path in &files {
-        let rel_path = file_path
-            .strip_prefix(&config.root)
-            .unwrap_or(file_path);
+    // Phase 1: read, hash, check, parse — in parallel
+    let parsed: Vec<ParsedFile> = files
+        .par_iter()
+        .filter_map(|file_path| {
+            let rel_path = file_path
+                .strip_prefix(&config.root)
+                .unwrap_or(file_path)
+                .to_path_buf();
 
-        pb.set_message(rel_path.display().to_string());
+            pb.set_message(rel_path.display().to_string());
 
-        let indexed = (|| -> Result<bool> {
-            let source = match std::fs::read_to_string(file_path) {
-                Ok(s) => s,
-                Err(e) => {
-                    pb.suspend(|| eprintln!("  skip {}: {}", rel_path.display(), e));
-                    return Ok(false);
-                }
-            };
+            let result = parse_one(file_path, &rel_path, &store, registry, force, &pb);
+            pb.inc(1);
 
-            let hash = content_hash(&source);
-
-            if !force {
-                if let Ok(Some(existing)) = store.get_file_record(&rel_path.to_path_buf()) {
-                    if existing.content_hash == hash {
-                        return Ok(false);
-                    }
+            match result {
+                Some(parsed) => Some(parsed),
+                None => {
+                    skipped.fetch_add(1, Ordering::Relaxed);
+                    None
                 }
             }
-
-            let extractor = match registry.extractor_for(file_path) {
-                Some(ext) => ext,
-                None => return Ok(false),
-            };
-            let (symbols, edges) = match extractor.extract(file_path, &source) {
-                Ok(r) => r,
-                Err(e) => {
-                    pb.suspend(|| eprintln!("  skip {}: {}", rel_path.display(), e));
-                    return Ok(false);
-                }
-            };
-
-            let _ = store.delete_file_data(&rel_path.to_path_buf());
-
-            result.symbols_count += symbols.len();
-            result.edges_count += edges.len();
-
-            if !symbols.is_empty() {
-                store.upsert_symbols(&symbols)
-                    .map_err(|e| anyhow::anyhow!("{}", e))?;
-            }
-            if !edges.is_empty() {
-                store.upsert_edges(&edges)
-                    .map_err(|e| anyhow::anyhow!("{}", e))?;
-            }
-
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system clock before unix epoch")
-                .as_secs();
-            store
-                .upsert_file_record(&FileRecord {
-                    path: rel_path.to_path_buf(),
-                    content_hash: hash,
-                    last_indexed: now,
-                })
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
-
-            Ok(true)
-        })();
-
-        match indexed {
-            Ok(true) => result.files_indexed += 1,
-            Ok(false) => result.files_skipped += 1,
-            Err(e) => return Err(e),
-        }
-        pb.inc(1);
-    }
+        })
+        .collect();
 
     pb.finish_and_clear();
-    Ok(result)
+
+    // Phase 2: write all results in a single transaction
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock before unix epoch")
+        .as_secs();
+
+    let mut total_symbols = 0usize;
+    let mut total_edges = 0usize;
+
+    store.begin_transaction().map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    for p in &parsed {
+        let _ = store.delete_file_data(&p.rel_path);
+
+        if !p.symbols.is_empty() {
+            store
+                .upsert_symbols(&p.symbols)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+        }
+        if !p.edges.is_empty() {
+            store
+                .upsert_edges(&p.edges)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+        }
+        store
+            .upsert_file_record(&FileRecord {
+                path: p.rel_path.clone(),
+                content_hash: p.content_hash.clone(),
+                last_indexed: now,
+            })
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        total_symbols += p.symbols.len();
+        total_edges += p.edges.len();
+    }
+
+    store.commit_transaction().map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    Ok(IndexResult {
+        files_indexed: parsed.len(),
+        files_skipped: skipped.load(Ordering::Relaxed),
+        symbols_count: total_symbols,
+        edges_count: total_edges,
+    })
+}
+
+fn parse_one(
+    file_path: &Path,
+    rel_path: &Path,
+    store: &SqliteGraphStore,
+    registry: &eagraph_parser::LanguageRegistry,
+    force: bool,
+    pb: &ProgressBar,
+) -> Option<ParsedFile> {
+    let source = match std::fs::read_to_string(file_path) {
+        Ok(s) => s,
+        Err(e) => {
+            pb.suspend(|| eprintln!("  skip {}: {}", rel_path.display(), e));
+            return None;
+        }
+    };
+
+    let hash = content_hash(&source);
+
+    if !force {
+        if let Ok(Some(existing)) = store.get_file_record(&rel_path.to_path_buf()) {
+            if existing.content_hash == hash {
+                return None;
+            }
+        }
+    }
+
+    let extractor = registry.extractor_for(file_path)?;
+
+    let (symbols, edges) = match extractor.extract(file_path, &source) {
+        Ok(r) => r,
+        Err(e) => {
+            pb.suspend(|| eprintln!("  skip {}: {}", rel_path.display(), e));
+            return None;
+        }
+    };
+
+    Some(ParsedFile {
+        rel_path: rel_path.to_path_buf(),
+        content_hash: hash,
+        symbols,
+        edges,
+    })
 }
 
 fn content_hash(content: &str) -> String {
@@ -144,22 +186,19 @@ fn collect_files(
     include: &[String],
     exclude: &[String],
 ) -> Result<Vec<PathBuf>> {
-    // Build a walker that respects .gitignore
     let mut builder = ignore::WalkBuilder::new(root);
     builder
-        .hidden(true)         // skip dotfiles/dotdirs
-        .git_ignore(true)     // respect .gitignore
-        .git_global(true)     // respect global gitignore
-        .git_exclude(true);   // respect .git/info/exclude
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true);
 
-    // Add exclude overrides
     let mut overrides = ignore::overrides::OverrideBuilder::new(root);
     for pattern in exclude {
         overrides
             .add(&format!("!{}", pattern))
             .with_context(|| format!("bad exclude pattern: {}", pattern))?;
     }
-    // Add include patterns (if specified, only match these)
     if !include.is_empty() {
         for pattern in include {
             overrides

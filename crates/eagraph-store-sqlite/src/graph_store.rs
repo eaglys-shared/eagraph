@@ -20,6 +20,18 @@ impl SqliteGraphStore {
 }
 
 impl SqliteGraphStore {
+    pub fn begin_transaction(&self) -> Result<()> {
+        self.conn()?.execute_batch("BEGIN IMMEDIATE").map_err(map_err)
+    }
+
+    pub fn commit_transaction(&self) -> Result<()> {
+        self.conn()?.execute_batch("COMMIT").map_err(map_err)
+    }
+
+    pub fn rollback_transaction(&self) -> Result<()> {
+        self.conn()?.execute_batch("ROLLBACK").map_err(map_err)
+    }
+
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path).map_err(|e| EagraphError::Store(e.to_string()))?;
         Self::init(conn)
