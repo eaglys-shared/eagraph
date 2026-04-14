@@ -1,0 +1,2 @@
+extensions = ["java"]
+module_separator = "."

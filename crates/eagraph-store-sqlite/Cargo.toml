@@ -1,0 +1,9 @@
+[package]
+name = "eagraph-store-sqlite"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+eagraph-core = { workspace = true }
+rusqlite = { workspace = true }
+serde_json = { workspace = true }

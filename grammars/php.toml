@@ -1,0 +1,2 @@
+extensions = ["php"]
+module_separator = "\\"

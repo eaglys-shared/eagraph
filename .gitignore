@@ -1,0 +1,7 @@
+/target/
+*.db
+*.so
+*.dylib
+*.dll
+*.o
+.DS_Store

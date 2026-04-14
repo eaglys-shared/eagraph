@@ -1,0 +1,7 @@
+[organization]
+name = "test-org"
+
+[[repos]]
+name = "sample-repo"
+root = "PLACEHOLDER"
+include = ["src/**/*.py"]

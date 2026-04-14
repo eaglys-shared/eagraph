@@ -1,0 +1,2 @@
+extensions = ["cs"]
+module_separator = "."

@@ -1,0 +1,2 @@
+extensions = ["hs"]
+module_separator = "."

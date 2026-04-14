@@ -1,0 +1,2 @@
+extensions = ["rb"]
+module_separator = "::"

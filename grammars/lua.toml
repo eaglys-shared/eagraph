@@ -1,0 +1,2 @@
+extensions = ["lua"]
+module_separator = "."

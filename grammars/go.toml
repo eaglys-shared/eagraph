@@ -1,0 +1,2 @@
+extensions = ["go"]
+module_separator = "/"

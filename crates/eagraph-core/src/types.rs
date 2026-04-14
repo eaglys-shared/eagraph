@@ -1,0 +1,214 @@
+use std::fmt;
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+
+/// Opaque symbol identifier. Generated as hash(file_path + name + kind).
+/// Scoped within a single branch DB — does not encode repo or branch.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SymbolId(pub String);
+
+impl fmt::Display for SymbolId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Opaque repo identifier.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct RepoId(pub String);
+
+impl fmt::Display for RepoId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Opaque identifier for an unresolved cross-repo reference (maps to autoincrement PK).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct UnresolvedCrossRefId(pub i64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SymbolKind {
+    Function,
+    Class,
+    Method,
+    Module,
+    Variable,
+    Type,
+}
+
+impl fmt::Display for SymbolKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Self::Function => "function",
+            Self::Class => "class",
+            Self::Method => "method",
+            Self::Module => "module",
+            Self::Variable => "variable",
+            Self::Type => "type",
+        };
+        f.write_str(s)
+    }
+}
+
+impl SymbolKind {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "function" => Some(Self::Function),
+            "class" => Some(Self::Class),
+            "method" => Some(Self::Method),
+            "module" => Some(Self::Module),
+            "variable" => Some(Self::Variable),
+            "type" => Some(Self::Type),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum EdgeKind {
+    Calls,
+    Imports,
+    Inherits,
+    References,
+    TypeOf,
+}
+
+impl fmt::Display for EdgeKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Self::Calls => "calls",
+            Self::Imports => "imports",
+            Self::Inherits => "inherits",
+            Self::References => "references",
+            Self::TypeOf => "typeof",
+        };
+        f.write_str(s)
+    }
+}
+
+impl EdgeKind {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "calls" => Some(Self::Calls),
+            "imports" => Some(Self::Imports),
+            "inherits" => Some(Self::Inherits),
+            "references" => Some(Self::References),
+            "typeof" => Some(Self::TypeOf),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Direction {
+    /// What does this symbol depend on.
+    Outgoing,
+    /// What depends on this symbol.
+    Incoming,
+    Both,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RetrievalMethod {
+    Structural,
+    Semantic,
+    Combined,
+}
+
+/// A code symbol extracted from source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Symbol {
+    pub id: SymbolId,
+    pub name: String,
+    pub kind: SymbolKind,
+    pub file_path: PathBuf,
+    pub line_start: u32,
+    pub line_end: u32,
+    pub metadata: Option<serde_json::Value>,
+}
+
+/// An intra-repo edge between two symbols.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Edge {
+    pub source: SymbolId,
+    pub target: SymbolId,
+    pub kind: EdgeKind,
+}
+
+/// A resolved cross-repo edge.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CrossRepoEdge {
+    pub source_repo: String,
+    pub source_branch: String,
+    pub source_symbol: SymbolId,
+    pub target_repo: String,
+    pub target_branch: String,
+    pub target_symbol: SymbolId,
+    pub kind: EdgeKind,
+}
+
+/// An import that references a symbol in another repo but hasn't been resolved yet.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnresolvedCrossRef {
+    pub id: Option<UnresolvedCrossRefId>,
+    pub source_repo: String,
+    pub source_branch: String,
+    pub source_symbol: SymbolId,
+    pub target_package: String,
+    pub target_path: String,
+    pub kind: EdgeKind,
+    pub created_at: u64,
+}
+
+/// Metadata about a registered repo.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepoRecord {
+    pub id: RepoId,
+    pub name: String,
+    pub root: PathBuf,
+}
+
+/// Tracks per-file indexing state for change detection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileRecord {
+    pub path: PathBuf,
+    pub content_hash: String,
+    pub last_indexed: u64,
+}
+
+/// Generic metadata attached to a symbol by an enricher.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Annotation {
+    pub symbol_id: SymbolId,
+    pub source: String,
+    pub key: String,
+    pub value: String,
+}
+
+/// A subgraph returned from intra-repo graph traversal.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SubGraph {
+    pub symbols: Vec<Symbol>,
+    pub edges: Vec<Edge>,
+}
+
+/// A symbol paired with its source snippet.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SymbolWithSnippet {
+    pub symbol: Symbol,
+    pub snippet: String,
+    pub annotations: Vec<Annotation>,
+}
+
+/// Result returned by the context retriever to the MCP layer.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ContextResult {
+    pub symbols: Vec<SymbolWithSnippet>,
+    pub edges: Vec<Edge>,
+    pub cross_repo_edges: Vec<CrossRepoEdge>,
+    pub unresolved_refs: Vec<UnresolvedCrossRef>,
+    pub repos_involved: Vec<RepoId>,
+    pub retrieval_method: Option<RetrievalMethod>,
+}

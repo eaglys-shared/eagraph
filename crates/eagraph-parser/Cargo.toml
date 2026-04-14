@@ -1,0 +1,13 @@
+[package]
+name = "eagraph-parser"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+eagraph-core = { workspace = true }
+tree-sitter = { workspace = true }
+libloading = { workspace = true }
+toml = { workspace = true }
+serde = { workspace = true }
+streaming-iterator = "0.1"
+

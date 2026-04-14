@@ -1,0 +1,2 @@
+extensions = ["kt", "kts"]
+module_separator = "."

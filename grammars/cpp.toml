@@ -1,0 +1,2 @@
+extensions = ["cpp", "cc", "cxx", "hpp", "hxx"]
+module_separator = "::"

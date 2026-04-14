@@ -1,0 +1,7 @@
+[package]
+name = "eagraph-crossref"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+eagraph-core = { workspace = true }

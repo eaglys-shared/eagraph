@@ -1,0 +1,58 @@
+[python]
+repo = "tree-sitter/tree-sitter-python"
+
+[javascript]
+repo = "tree-sitter/tree-sitter-javascript"
+
+[typescript]
+repo = "tree-sitter/tree-sitter-typescript"
+src_subdir = "typescript"
+
+[rust]
+repo = "tree-sitter/tree-sitter-rust"
+
+[go]
+repo = "tree-sitter/tree-sitter-go"
+
+[java]
+repo = "tree-sitter/tree-sitter-java"
+
+[ruby]
+repo = "tree-sitter/tree-sitter-ruby"
+
+[c]
+repo = "tree-sitter/tree-sitter-c"
+
+[cpp]
+repo = "tree-sitter/tree-sitter-cpp"
+
+[c_sharp]
+repo = "tree-sitter/tree-sitter-c-sharp"
+
+[swift]
+repo = "tree-sitter/tree-sitter-swift"
+
+[kotlin]
+repo = "tree-sitter-grammars/tree-sitter-kotlin"
+
+[php]
+repo = "tree-sitter/tree-sitter-php"
+src_subdir = "php"
+
+[scala]
+repo = "tree-sitter/tree-sitter-scala"
+
+[zig]
+repo = "tree-sitter-grammars/tree-sitter-zig"
+
+[elixir]
+repo = "elixir-lang/tree-sitter-elixir"
+
+[haskell]
+repo = "tree-sitter/tree-sitter-haskell"
+
+[lua]
+repo = "tree-sitter-grammars/tree-sitter-lua"
+
+[bash]
+repo = "tree-sitter/tree-sitter-bash"

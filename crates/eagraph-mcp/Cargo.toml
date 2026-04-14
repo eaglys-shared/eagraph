@@ -1,0 +1,8 @@
+[package]
+name = "eagraph-mcp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+eagraph-core = { workspace = true }
+eagraph-retriever = { workspace = true }

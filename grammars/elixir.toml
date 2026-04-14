@@ -1,0 +1,2 @@
+extensions = ["ex", "exs"]
+module_separator = "."

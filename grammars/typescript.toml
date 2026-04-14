@@ -1,0 +1,2 @@
+extensions = ["ts", "tsx"]
+module_separator = "."
