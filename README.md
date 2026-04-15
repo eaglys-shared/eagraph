@@ -1,6 +1,19 @@
-# eagraph
 
-eagraph is a code knowledge graph designed to reduce the tokens Claude Code spends on navigation. When an agent needs to find callers, trace a call chain, or map a file's structure, it would otherwise chain several grep, glob, and read calls. eagraph answers the same question with a single query against a pre-built index. The project ships as a Claude Code skill, and it also runs as a standalone CLI.
+<p align="center">
+  <b>E A G R A P H</b>
+</p>
+
+<img width="1783" height="940" alt="image" src="https://github.com/user-attachments/assets/5273145f-6814-46da-9e65-34893526bd85" />
+
+<sup>
+  <sub>
+    <i>ALCHEMISTA Labs code graph</i>
+  </sub>
+</sup>
+
+---
+
+eagraph is a code knowledge graph designed to reduce the tokens Claude Code spends on navigation. When an agent needs to find callers, trace a call chain, or map a file's structure, it would otherwise chain several grep, glob, and read calls. eagraph answers the same question with a single query against a pre-built index. The project ships as a Claude Code skill, and it also runs as a standalone CLI. Additionally, eagraph is shipped with embedded graph visualizer.
 
 Written in Rust. Uses tree-sitter for parsing, SQLite for storage. All data lives in the OS application directory, never inside your repos.
 
