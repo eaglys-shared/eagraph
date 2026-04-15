@@ -1,154 +1,121 @@
 # eagraph
 
-A code knowledge graph that spans multiple repositories. Point it at your repos, and it builds a graph of symbols (functions, classes, methods, imports) and their relationships (calls, inheritance, imports). Query it from the CLI now, from an MCP server soon.
+A code knowledge graph that spans multiple repositories. Point it at your repos, and it builds a graph of symbols (functions, classes, methods, imports) and their relationships (calls, inheritance, imports). Query from the CLI, explore with an interactive visualization, or let Claude Code use it directly via the bundled skill.
 
-Written in Rust. Uses tree-sitter for parsing, SQLite for storage. Doesn't touch your repos — all data lives in the OS application directory.
+Written in Rust. Uses tree-sitter for parsing, SQLite for storage. All data lives in the OS application directory, never inside your repos.
 
-## What works today
-
-- **Index any language** — grammars are loaded dynamically from shared libraries (.so/.dylib). No recompilation needed to add a language.
-- **Query symbols** — substring search with optional kind filter, scoped to one or all repos
-- **Graph traversal** — neighbor discovery with configurable depth (outgoing, incoming, both), shortest path between symbols
-- **Change detection** — re-indexing skips files that haven't changed (SHA256 content hash)
-- **Branch awareness** — one SQLite DB per branch, auto-detected via `git rev-parse`
-
-## Getting started
-
-### 1. Build
-
-```
-cargo build -p eagraph-cli
-```
-
-### 2. Install grammars
-
-eagraph loads tree-sitter grammars at runtime. Install them with:
+## Quick start
 
 ```bash
+# Build
+cargo build --release -p eagraph-cli
+cp target/release/eagraph ~/.local/bin/  # or wherever
+
+# Install grammars for your languages
 eagraph grammars add python typescript rust go
+
+# Set up
+eagraph init myorg
+eagraph add /path/to/my-project
+
+# Query
+eagraph query MyClass
+eagraph context MyClass
+eagraph dependents src/models.py
+eagraph symbols src/models.py
+eagraph chain function_a function_b
+
+# Visualize
+eagraph viz
 ```
 
-This clones each grammar's repo, compiles it into a shared library, and places the `.so`/`.dylib` + `.scm` + `.toml` into the grammars directory. Requires a C compiler (`cc`).
+`eagraph add` detects languages, recommends missing grammars, and indexes immediately. Repos must be git repositories.
 
-See what's available and what's installed:
+## Commands
+
+All query commands support `--json` for structured output. `--repo` auto-detects from the current directory.
+
+| Command | What it does |
+|---|---|
+| `eagraph init <org>` | Create config file |
+| `eagraph add <path> [--name X]` | Add repo, detect languages, auto-index |
+| `eagraph index <repo> [--force] [--all]` | Index repo(s) |
+| `eagraph status` | Show repos, branches, symbol counts |
+| `eagraph query <name>` | Search symbols by name |
+| `eagraph context <symbol> [--depth N]` | Symbol neighborhood + source snippets |
+| `eagraph dependents <file> [--depth N]` | What depends on this file |
+| `eagraph symbols <file>` | File table of contents |
+| `eagraph chain <from> <to>` | Shortest call path between two symbols |
+| `eagraph viz [--port N]` | Interactive graph in browser |
+| `eagraph config` | Print config and grammars paths |
+| `eagraph grammars add <lang>...` | Compile and install grammar |
+| `eagraph grammars list` | Show installed/available |
+| `eagraph grammars check` | Recommend grammars for repos |
+
+Data is always fresh. Every query checks file mtimes and re-indexes stale files automatically.
+
+## Installing grammars
 
 ```bash
-eagraph grammars list
+eagraph grammars add python typescript rust go java
 ```
 
-Grammars directory: `~/.config/eagraph/grammars/` (override with `EAGRAPH_GRAMMARS`).
+This clones each grammar's repo, compiles it to a shared library, and installs it. Requires a C compiler (`cc`).
 
-#### Manual grammar installation
+See all available grammars: `eagraph grammars list`
 
-If a grammar isn't in the built-in list, or you want to customize the build:
+For unlisted grammars, build manually:
 
 ```bash
-# 1. Clone the grammar repo
 git clone https://github.com/tree-sitter/tree-sitter-python
 cd tree-sitter-python/src
 
-# 2. Compile to shared library
-#    macOS:
+# macOS
 cc -shared -dynamiclib -fPIC -O2 -I. parser.c scanner.c -o python.dylib
-#    Linux:
+
+# Linux
 cc -shared -fPIC -O2 -I. parser.c scanner.c -o python.so
-
-# Some grammars have scanner.c or scanner.cc — include it if present.
-# If scanner.cc (C++), use c++ instead of cc.
-
-# 3. Place in grammars directory
-cp python.dylib ~/.config/eagraph/grammars/
 ```
 
-You also need a `.toml` and `.scm` file alongside the shared library:
+Then place the `.so`/`.dylib` alongside a `.scm` (query patterns) and `.toml` (extensions config) in the grammars directory. See `grammars/python.scm` and `grammars/python.toml` for examples.
 
-**python.toml** — which file extensions this grammar handles:
-```toml
-extensions = ["py", "pyi"]
-module_separator = "."
+## Claude Code integration
+
+eagraph ships with a skill and an agent for Claude Code.
+
+```bash
+# Install skill (makes /eagraph command available)
+ln -s /path/to/eagraph/skill ~/.claude/skills/eagraph
+
+# Install agent (subagents use eagraph for code navigation)
+ln -s /path/to/eagraph/agent/eagraph-explorer.md ~/.claude/agents/eagraph-explorer.md
 ```
 
-**python.scm** — tree-sitter query patterns that tell eagraph what to extract:
-```scheme
-(function_definition name: (identifier) @func.name) @func.def
-(class_definition name: (identifier) @class.name) @class.def
-(call function: (identifier) @call.name) @call.def
-; ... see grammars/python.scm for the full file
-```
-
-The capture names (`@func.def`, `@class.name`, `@call.name`, etc.) follow a convention the generic extractor understands. Use the [tree-sitter playground](https://tree-sitter.github.io/tree-sitter/playground) to explore a language's AST and write queries.
-
-### 3. Configure repos
-
-Create a config file at `~/.config/eagraph/config.toml` (Linux) or `~/Library/Application Support/eagraph/config.toml` (macOS):
-
-```toml
-[organization]
-name = "myorg"
-
-[[repos]]
-name = "my-project"
-root = "/path/to/my-project"
-include = ["**/*.py"]
-exclude = ["**/test_*", "**/__pycache__/**"]
-```
-
-### 4. Index and query
-
-```
-eagraph index                    # parse and store all configured repos
-eagraph status                   # show repos, branches, symbol counts
-eagraph query process_document   # find symbols by name
-eagraph query validate --repo X  # search within one repo
-eagraph config                   # print resolved config and grammars paths
-```
-
-Config path override: `EAGRAPH_CONFIG=/path/to/config.toml` or `--config`.
-Grammars path override: `EAGRAPH_GRAMMARS=/path/to/grammars/`.
+The skill teaches Claude to use `eagraph context`, `eagraph symbols`, etc. instead of doing multiple grep/glob/read calls. The agent ensures subagents also prefer eagraph for code exploration.
 
 ## Running tests
 
-```
-cargo test --workspace
-```
-
-The build script compiles a Python grammar `.so` from vendored C sources in `tests/fixtures/grammars-src/python/`, then the tests load it via `dlopen` — exercising the same dynamic loading path as production.
-
-Run just the end-to-end test:
-
-```
-cargo test -p eagraph-cli --test e2e_index
+```bash
+cargo test --workspace    # 32 tests
 ```
 
-The fixture repo at `tests/fixtures/sample-repo/` must be a git repository. If tests fail with a git error, run `git init && git add -A && git commit -m "init"` inside that directory.
+The build script compiles a Python grammar `.so` from vendored C sources, then tests load it via `dlopen` to exercise the same dynamic loading path as production.
 
 ## Project layout
 
 ```
 crates/
-  eagraph-core/               types, traits, config, errors
-  eagraph-store-sqlite/       GraphStore implementation + SQL files
-  eagraph-parser/             generic tree-sitter extractor + dynamic grammar loading
-  eagraph-cli/                binary (index, status, query, config)
-  eagraph-crossref/           cross-repo resolution (not yet implemented)
-  eagraph-retriever/          context retriever (not yet implemented)
-  eagraph-mcp/                MCP server (not yet implemented)
-grammars/                     .scm query files + .toml configs (checked in)
+  eagraph-core/             types, traits, config, errors
+  eagraph-store-sqlite/     GraphStore + SQL files
+  eagraph-parser/           generic tree-sitter extractor, dynamic grammar loading
+  eagraph-retriever/        context retriever, snippet reader
+  eagraph-cli/              binary with all commands
+  eagraph-crossref/         cross-repo resolution (stub)
+  eagraph-mcp/              MCP server (stub)
+grammars/                   .scm + .toml for 19 languages, registry.toml
+skill/                      Claude Code skill
+agent/                      Claude Code subagent definition
 tests/fixtures/
-  sample-repo/                Python fixture project for e2e tests
-  grammars-src/               vendored C sources for compiling test .so files
+  grammars-src/             vendored C sources for test .so compilation
+  sample-repo/              Python fixture project
 ```
-
-## Adding a language
-
-For languages in the built-in list (see `eagraph grammars list`):
-
-```bash
-eagraph grammars add go
-```
-
-For anything else, follow the manual installation steps in the "Install grammars" section above. Any language with a [tree-sitter grammar](https://tree-sitter.github.io/tree-sitter/#parsers) works — you just need to compile the `.so`, write a `.scm` query file, and write a `.toml` config.
-
-## What's next
-
-MCP server over stdio, so an LLM can query the graph directly. Then file watching for live re-indexing, and cross-repo edge resolution. See `MILESTONES.md` for the full plan.

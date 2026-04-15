@@ -35,10 +35,11 @@ enum Command {
     },
     /// Add a repo to the config
     Add {
-        /// Repo name
-        name: String,
         /// Path to the repo root
         path: String,
+        /// Override repo name (defaults to folder name)
+        #[arg(long)]
+        name: Option<String>,
     },
     /// Index a repo (or all with --all)
     Index {
@@ -65,9 +66,9 @@ enum Command {
     Context {
         /// Symbol name
         name: String,
-        /// Repo name
+        /// Repo name (auto-detected from cwd if omitted)
         #[arg(long)]
-        repo: String,
+        repo: Option<String>,
         /// Traversal depth
         #[arg(long, default_value = "2")]
         depth: u32,
@@ -76,9 +77,9 @@ enum Command {
     Dependents {
         /// File path (relative to repo root)
         file: String,
-        /// Repo name
+        /// Repo name (auto-detected from cwd if omitted)
         #[arg(long)]
-        repo: String,
+        repo: Option<String>,
         /// Traversal depth
         #[arg(long, default_value = "1")]
         depth: u32,
@@ -87,9 +88,9 @@ enum Command {
     Symbols {
         /// File path (relative to repo root)
         file: String,
-        /// Repo name
+        /// Repo name (auto-detected from cwd if omitted)
         #[arg(long)]
-        repo: String,
+        repo: Option<String>,
     },
     /// Find shortest call path between two symbols
     Chain {
@@ -97,9 +98,9 @@ enum Command {
         from: String,
         /// Target symbol name
         to: String,
-        /// Repo name
+        /// Repo name (auto-detected from cwd if omitted)
         #[arg(long)]
-        repo: String,
+        repo: Option<String>,
     },
     /// Open interactive graph visualization in browser
     Viz {
@@ -148,7 +149,7 @@ fn main() -> Result<()> {
     match &cli.command {
         Command::Config => return cmd_config(&config_path, &grammars_dir),
         Command::Init { org } => return cmd_init(&config_path, org),
-        Command::Add { name, path } => return cmd_add(&config_path, name, path, &grammars_dir),
+        Command::Add { path, name } => return cmd_add(&config_path, path, name.as_deref(), &grammars_dir),
         _ => {}
     }
 
@@ -168,10 +169,10 @@ fn main() -> Result<()> {
         Command::Index { repo, all, force } => cmd_index(&config, &data_dir, &registry, repo.as_deref(), all, force),
         Command::Status => cmd_status(&config, &data_dir, &registry, json),
         Command::Query { name, repo } => cmd_query(&config, &data_dir, &registry, &name, repo.as_deref(), json),
-        Command::Context { name, repo, depth } => cmd_context(&config, &data_dir, &registry, &name, &repo, depth, json),
-        Command::Dependents { file, repo, depth } => cmd_dependents(&config, &data_dir, &registry, &file, &repo, depth, json),
-        Command::Symbols { file, repo } => cmd_symbols(&config, &data_dir, &registry, &file, &repo, json),
-        Command::Chain { from, to, repo } => cmd_chain(&config, &data_dir, &registry, &from, &to, &repo, json),
+        Command::Context { name, repo, depth } => { let r = resolve_repo_name(&config, repo.as_deref())?; cmd_context(&config, &data_dir, &registry, &name, &r, depth, json) },
+        Command::Dependents { file, repo, depth } => { let r = resolve_repo_name(&config, repo.as_deref())?; cmd_dependents(&config, &data_dir, &registry, &file, &r, depth, json) },
+        Command::Symbols { file, repo } => { let r = resolve_repo_name(&config, repo.as_deref())?; cmd_symbols(&config, &data_dir, &registry, &file, &r, json) },
+        Command::Chain { from, to, repo } => { let r = resolve_repo_name(&config, repo.as_deref())?; cmd_chain(&config, &data_dir, &registry, &from, &to, &r, json) },
         Command::Viz { port } => cmd_viz(&config, &data_dir, &registry, port),
         Command::Grammars { action: GrammarsAction::Check } => {
             grammar_builder::cmd_grammars_check(&config, &grammars_dir)
@@ -335,6 +336,31 @@ fn cmd_query(
         }
     }
     Ok(())
+}
+
+/// Detect which configured repo contains the current working directory.
+fn detect_repo_from_cwd(config: &eagraph_core::Config) -> Option<String> {
+    let cwd = std::fs::canonicalize(std::env::current_dir().ok()?).ok()?;
+    config.repos.iter().find_map(|repo| {
+        let root = std::fs::canonicalize(&repo.root).ok()?;
+        cwd.starts_with(&root).then(|| repo.name.clone())
+    })
+}
+
+fn resolve_repo_name(config: &eagraph_core::Config, explicit: Option<&str>) -> Result<String> {
+    if let Some(name) = explicit {
+        return Ok(name.to_string());
+    }
+    match detect_repo_from_cwd(config) {
+        Some(name) => Ok(name),
+        None => {
+            let names: Vec<&str> = config.repos.iter().map(|r| r.name.as_str()).collect();
+            anyhow::bail!(
+                "could not detect repo from current directory. Use --repo <name>.\nConfigured repos: {}",
+                names.join(", ")
+            );
+        }
+    }
 }
 
 fn open_repo_store(
@@ -640,13 +666,28 @@ fn cmd_init(config_path: &PathBuf, org: &str) -> Result<()> {
     println!("Created {}", config_path.display());
     println!();
     println!("Add repos with:");
-    println!("  eagraph add <name> /path/to/repo");
+    println!("  eagraph add /path/to/repo");
     Ok(())
 }
 
-fn cmd_add(config_path: &PathBuf, name: &str, path: &str, grammars_dir: &Path) -> Result<()> {
+fn cmd_add(config_path: &PathBuf, path: &str, name_override: Option<&str>, grammars_dir: &Path) -> Result<()> {
     let repo_path = std::fs::canonicalize(path)
         .with_context(|| format!("path not found: {}", path))?;
+
+    // Derive name from folder or use override
+    let name = match name_override {
+        Some(n) => n.to_string(),
+        None => repo_path
+            .file_name()
+            .and_then(|f| f.to_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow::anyhow!("could not derive name from path. Use --name"))?,
+    };
+
+    // Validate name: alphanumeric, hyphens, underscores only
+    if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        anyhow::bail!("invalid repo name '{}'. Use letters, numbers, hyphens, underscores.", name);
+    }
 
     if !config_path.exists() {
         eprintln!("Config file not found. Run:");
@@ -659,7 +700,6 @@ fn cmd_add(config_path: &PathBuf, name: &str, path: &str, grammars_dir: &Path) -
         anyhow::bail!("{} is not a git repo. eagraph requires git for branch detection, .gitignore, and change tracking.", repo_path.display());
     }
 
-    // Check for duplicate
     let config = config_loader::load_config(config_path)?;
     if config.repos.iter().any(|r| r.name == name) {
         anyhow::bail!("repo '{}' already exists in config", name);

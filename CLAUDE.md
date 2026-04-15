@@ -31,7 +31,7 @@ tests/fixtures/
 
 ```
 eagraph init <org>                         # create config
-eagraph add <name> <path>                  # add repo, detect languages, auto-index
+eagraph add <path> [--name X]              # add repo, detect languages, auto-index
 eagraph index <repo> [--force] [--all]     # index repo(s)
 eagraph status                             # repo/branch/symbol counts
 eagraph query <name> [--repo X]            # search symbols

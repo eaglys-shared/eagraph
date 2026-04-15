@@ -1,36 +1,40 @@
 ---
 name: eagraph
-description: Code knowledge graph for navigating multi-repo codebases. Use when you need to understand code structure, find callers/callees, trace dependencies, or get context around a symbol. Replaces multiple glob/grep/read calls with a single graph query.
+description: Code knowledge graph for navigating multi-repo codebases. ALWAYS use eagraph instead of multiple glob/grep/read calls when investigating code structure, callers/callees, dependencies, or file contents. One eagraph call replaces 5-15 tool calls.
 ---
 
 # eagraph — Code Knowledge Graph
 
-Use this skill to query the code knowledge graph instead of doing multiple file searches. One `eagraph` call replaces 5-15 glob/grep/read tool calls.
+**Use eagraph FIRST before resorting to glob/grep/read** for any code navigation task. It is faster, cheaper, and returns structured results.
+
+`--repo` is optional on all commands — eagraph auto-detects the repo from the current working directory.
 
 All commands support `--json` for structured output: `eagraph --json <command> ...`
 
+Data is always fresh — eagraph auto-refreshes stale files before every query.
+
 ## When to use
 
-- "What calls this function?" → `eagraph --json context <name> --repo <repo>`
-- "What breaks if I change this file?" → `eagraph --json dependents <file> --repo <repo>`
-- "What's in this file?" → `eagraph --json symbols <file> --repo <repo>`
-- "How does A reach B?" → `eagraph --json chain <from> <to> --repo <repo>`
-- "Find a function by name" → `eagraph --json query <name>`
+- Understanding a symbol → `eagraph --json context <name>`
+- Finding callers/dependents → `eagraph --json dependents <file>`
+- File structure → `eagraph --json symbols <file>`
+- Tracing call chains → `eagraph --json chain <from> <to>`
+- Finding symbols by name → `eagraph --json query <name>`
 
 ## Commands
 
 ### Get structural context for a symbol
 
 ```bash
-eagraph --json context <symbol-name> --repo <repo-name> --depth 2
+eagraph --json context <symbol-name>
 ```
 
-Returns the symbol's source code, all symbols it calls/imports/inherits, and all symbols that call/import/inherit it, with source snippets. Depth controls how many hops to traverse.
+Returns the symbol's source code, all symbols it calls/imports/inherits, and all symbols that call/import/inherit it, with source snippets. Use `--depth 3` for deeper traversal.
 
 ### Get dependents of a file
 
 ```bash
-eagraph --json dependents <file-path> --repo <repo-name> --depth 1
+eagraph --json dependents <file-path>
 ```
 
 Returns every symbol in the file and what depends on each one. File path is relative to the repo root.
@@ -38,26 +42,22 @@ Returns every symbol in the file and what depends on each one. File path is rela
 ### List all symbols in a file
 
 ```bash
-eagraph --json symbols <file-path> --repo <repo-name>
+eagraph --json symbols <file-path>
 ```
 
-Returns every symbol (function, class, method) in the file with kind and line range. Like a table of contents — avoids reading the whole file.
+Table of contents for a file — every function, class, method with line ranges. Use this instead of reading entire files to understand structure.
 
 ### Find shortest call path between two symbols
 
 ```bash
-eagraph --json chain <from-symbol> <to-symbol> --repo <repo-name>
+eagraph --json chain <from-symbol> <to-symbol>
 ```
-
-Returns the shortest sequence of call edges connecting two symbols. Returns null if no path exists.
 
 ### Search for symbols by name
 
 ```bash
-eagraph --json query <name> --repo <repo-name>
+eagraph --json query <name>
 ```
-
-Substring search across all symbols. Returns name, kind, file path, line range, and repo.
 
 ### Check index status
 
@@ -65,13 +65,11 @@ Substring search across all symbols. Returns name, kind, file path, line range, 
 eagraph --json status
 ```
 
-Returns each repo's name, branch, and symbol count.
-
 ### Re-index a repo
 
 ```bash
 eagraph index <repo-name>
-eagraph index <repo-name> --force  # full re-index, fresh DB
+eagraph index <repo-name> --force
 ```
 
 ### Interactive graph visualization
@@ -80,20 +78,22 @@ eagraph index <repo-name> --force  # full re-index, fresh DB
 eagraph viz
 ```
 
-Starts a local web server with an interactive force-directed graph. Supports file-level and symbol-level views, repo switching, search, and click-to-highlight. Suggest this when the user asks about architecture, module boundaries, or dependency structure.
+Starts a local web server with an interactive force-directed graph.
 
 ## Tips
 
-- Use `--json` for all queries — structured output is easier to parse and uses fewer tokens than the human-readable format.
-- Use `context` as the first step when investigating any symbol — it gives you the full picture in one call.
+- `--repo` is auto-detected from cwd. Only specify it when working across repos.
+- Use `--json` for all queries.
+- Use `context` as the first step when investigating any symbol.
 - Use `symbols` to understand a file's structure without reading it.
 - Use `dependents` before making changes to understand impact.
-- Use `chain` to trace how a request flows through the system.
-- Depth 1 is usually enough. Use depth 2-3 for tracing longer chains.
-- The graph only contains symbols from indexed files. External library calls won't have targets.
+- Depth 1 is usually enough. Use depth 2-3 for longer chains.
 
 ## Installation
 
 ```bash
 ln -s /path/to/eagraph/skill ~/.claude/skills/eagraph
+ln -s /path/to/eagraph/agent/eagraph-explorer.md ~/.claude/agents/eagraph-explorer.md
 ```
+
+The agent ensures subagents use eagraph for code navigation instead of raw grep/glob/read.
