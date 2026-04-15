@@ -39,3 +39,7 @@ dirs = "6"
 glob = "0.3"
 sha2 = "0.10"
 tiny_http = "0.12"
+
+[profile.release]
+strip = true
+lto = "thin"
