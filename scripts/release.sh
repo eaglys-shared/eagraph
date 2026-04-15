@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# Bump the workspace version, commit, tag, and push.
-# Pushing the tag triggers .github/workflows/release.yml and attaches
-# per-target binaries to the GitHub Release page for that tag.
+# Cut a release: bump the workspace version, snapshot EVERYTHING in the
+# working tree (respecting .gitignore) as the release commit, tag it,
+# and push both commit and tag. The tag push triggers
+# .github/workflows/release.yml, which attaches per-target binaries to
+# the GitHub Release page for that tag.
+#
+# Anything in the tree that is not gitignored is part of the release.
+# If you have work you don't want shipped yet, either commit it separately
+# on another branch first or add it to .gitignore.
 #
 # Only explicit versions are accepted. No patch/minor/major shortcuts.
-# Picking the right version is a decision, not an increment — the
-# contributor has to name it.
-#
-# The release commit only touches Cargo.toml and Cargo.lock. Unrelated
-# uncommitted or untracked files are left alone.
+# Picking the right version is a decision, not an increment.
 #
 # Usage:
 #   scripts/release.sh 0.1.1
@@ -43,23 +45,14 @@ if [[ -z "$CURRENT" ]]; then
     exit 1
 fi
 
-# Reject if NEW is not strictly greater than CURRENT. Compares numerically
-# component-by-component so "0.10.0" > "0.9.9" (no lexicographic surprises).
+# Reject if NEW is not strictly greater than CURRENT. Numeric comparison
+# per component so "0.10.0" > "0.9.9".
 IFS='.' read -r CMAJ CMIN CPAT <<< "$CURRENT"
 IFS='.' read -r NMAJ NMIN NPAT <<< "$NEW"
 if (( NMAJ < CMAJ )) \
    || (( NMAJ == CMAJ && NMIN < CMIN )) \
    || (( NMAJ == CMAJ && NMIN == CMIN && NPAT <= CPAT )); then
     echo "error: new version $NEW is not greater than current $CURRENT" >&2
-    exit 1
-fi
-
-# Cargo.toml and Cargo.lock must themselves be clean; we are about to
-# rewrite and commit them and we don't want to sweep in unrelated work.
-# Other uncommitted or untracked files elsewhere are ignored.
-if ! git diff --quiet -- Cargo.toml Cargo.lock \
-   || ! git diff --cached --quiet -- Cargo.toml Cargo.lock; then
-    echo "error: Cargo.toml or Cargo.lock has uncommitted changes — commit or revert them first" >&2
     exit 1
 fi
 
@@ -73,15 +66,15 @@ fi
 
 echo "Bumping $CURRENT -> $NEW"
 
-# Rewrite the workspace version. Portable between BSD and GNU sed by
-# writing to a temp file instead of using the differing -i flag.
+# Rewrite the workspace version. Portable between BSD and GNU sed.
 sed "s/^version = \"$CURRENT\"\$/version = \"$NEW\"/" Cargo.toml > Cargo.toml.tmp
 mv Cargo.toml.tmp Cargo.toml
 
 # Regenerate Cargo.lock and confirm the workspace still builds.
 cargo check --workspace --quiet
 
-git add Cargo.toml Cargo.lock
+# Snapshot everything (except gitignored files) into the release commit.
+git add -A
 git commit -m "Release $TAG"
 git tag -a "$TAG" -m "Release $TAG"
 

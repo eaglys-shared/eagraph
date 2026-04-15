@@ -33,11 +33,43 @@ The skill teaches Claude to use `eagraph context`, `eagraph symbols`, etc. inste
 
 ## Using eagraph as a CLI
 
-```bash
-# Build
-cargo build --release -p eagraph-cli
-cp target/release/eagraph ~/.local/bin/  # or wherever
+### Install
 
+Download a precompiled binary from the [latest release](https://github.com/eaglys-shared/eagraph/releases/latest). Two targets are published per tag:
+
+- `x86_64-unknown-linux-gnu` — Linux x86_64
+- `aarch64-apple-darwin` — macOS Apple Silicon
+
+Intel Mac builds are not published. Intel Mac users should build from source (below).
+
+Each archive ships the `eagraph` binary alongside a `.sha256` for verification. Extract, verify, place on PATH:
+
+```bash
+tar -xzf eagraph-v<X.Y.Z>-<target>.tar.gz
+shasum -a 256 -c eagraph-v<X.Y.Z>-<target>.tar.gz.sha256
+sudo install eagraph-v<X.Y.Z>-<target>/eagraph /usr/local/bin/
+```
+
+#### macOS: unsigned binary
+
+The macOS builds are **not code-signed or notarized**. Gatekeeper will refuse to launch the binary on first run with an error similar to *"eagraph cannot be opened because the developer cannot be verified."* Remove the quarantine attribute to allow it through:
+
+```bash
+xattr -d com.apple.quarantine /usr/local/bin/eagraph
+```
+
+One-time step. Apply it to the installed path. If you prefer to avoid the unsigned binary entirely, build from source — the result is byte-equivalent up to reproducibility flags.
+
+### Build from source
+
+```bash
+cargo build --release -p eagraph-cli
+sudo install target/release/eagraph /usr/local/bin/
+```
+
+### Use
+
+```bash
 # Install grammars for your languages
 eagraph grammars add python typescript rust go
 
