@@ -15,7 +15,14 @@
   <button class="btn view-btn active" data-view="files">Files</button>
   <button class="btn view-btn" data-view="symbols">Symbols</button>
   <div class="sep"></div>
-  <span id="kind-filters" role="group" aria-label="Filter by kind"></span>
+  <div class="dropdown" id="kind-dropdown">
+    <button class="dropdown-toggle" aria-haspopup="true" aria-expanded="false">Kind</button>
+    <div class="dropdown-menu" role="menu"></div>
+  </div>
+  <div class="dropdown" id="lang-dropdown">
+    <button class="dropdown-toggle" aria-haspopup="true" aria-expanded="false">Language</button>
+    <div class="dropdown-menu" role="menu"></div>
+  </div>
 </div>
 <div id="stats"></div>
 <div id="info" aria-live="polite">&nbsp;</div>

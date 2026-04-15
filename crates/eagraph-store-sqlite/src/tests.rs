@@ -476,4 +476,110 @@ mod tests {
         assert_eq!(meta["async"], true);
         assert_eq!(meta["decorator"], "route");
     }
+
+    // ---- get_all_symbols / get_all_edges ----
+
+    #[test]
+    fn get_all_symbols_and_edges() {
+        let store = make_store();
+        store
+            .upsert_symbols(&[
+                sym("s1", "a", SymbolKind::Function, "a.py", 1, 5),
+                sym("s2", "b", SymbolKind::Function, "b.py", 1, 5),
+            ])
+            .unwrap();
+        store.upsert_edges(&[edge("s1", "s2", EdgeKind::Calls)]).unwrap();
+
+        let all_sym = store.get_all_symbols().unwrap();
+        assert_eq!(all_sym.len(), 2);
+
+        let all_edg = store.get_all_edges().unwrap();
+        assert_eq!(all_edg.len(), 1);
+    }
+
+    // ---- get_all_file_records ----
+
+    #[test]
+    fn get_all_file_records() {
+        let store = make_store();
+        store
+            .upsert_file_record(&FileRecord {
+                path: PathBuf::from("a.py"),
+                content_hash: "h1".into(),
+                last_indexed: 100,
+            })
+            .unwrap();
+        store
+            .upsert_file_record(&FileRecord {
+                path: PathBuf::from("b.py"),
+                content_hash: "h2".into(),
+                last_indexed: 200,
+            })
+            .unwrap();
+
+        let records = store.get_all_file_records().unwrap();
+        assert_eq!(records.len(), 2);
+    }
+
+    // ---- RawEdge::resolve with language scoping ----
+
+    #[test]
+    fn resolve_edges_same_language() {
+        use eagraph_core::RawEdge;
+        use std::collections::HashMap;
+
+        let symbols = vec![
+            sym("py1", "Response", SymbolKind::Class, "models.py", 1, 10),
+            sym("py2", "handler", SymbolKind::Function, "views.py", 1, 5),
+            sym("ts1", "Response", SymbolKind::Class, "types.ts", 1, 10),
+        ];
+
+        let raw = vec![RawEdge {
+            source: SymbolId("py2".into()),
+            target_name: "Response".into(),
+            kind: EdgeKind::Calls,
+        }];
+
+        let ext_to_lang: HashMap<String, String> = [
+            ("py", "python"),
+            ("ts", "typescript"),
+        ]
+        .iter()
+        .map(|(e, l)| (e.to_string(), l.to_string()))
+        .collect();
+
+        let resolved = RawEdge::resolve(&raw, &symbols, &ext_to_lang);
+        assert_eq!(resolved.len(), 1);
+        // Should resolve to Python Response, not TypeScript Response
+        assert_eq!(resolved[0].target, SymbolId("py1".into()));
+    }
+
+    #[test]
+    fn resolve_edges_cross_language_dropped() {
+        use eagraph_core::RawEdge;
+        use std::collections::HashMap;
+
+        let symbols = vec![
+            sym("ts1", "Response", SymbolKind::Class, "types.ts", 1, 10),
+            sym("py1", "handler", SymbolKind::Function, "views.py", 1, 5),
+        ];
+
+        // Python handler calls "Response" but only TS Response exists
+        let raw = vec![RawEdge {
+            source: SymbolId("py1".into()),
+            target_name: "Response".into(),
+            kind: EdgeKind::Calls,
+        }];
+
+        let ext_to_lang: HashMap<String, String> = [
+            ("py", "python"),
+            ("ts", "typescript"),
+        ]
+        .iter()
+        .map(|(e, l)| (e.to_string(), l.to_string()))
+        .collect();
+
+        let resolved = RawEdge::resolve(&raw, &symbols, &ext_to_lang);
+        assert_eq!(resolved.len(), 0); // dropped — no Python Response exists
+    }
 }

@@ -1,5 +1,6 @@
 let allData, viewMode = "files", selectedNode = null, currentRepo = null;
 const activeKinds = new Set();
+const activeLangs = new Set();
 const svg = d3.select("svg");
 const width = window.innerWidth, height = window.innerHeight;
 const g = svg.append("g");
@@ -8,7 +9,59 @@ let linkG = g.append("g").attr("class", "links");
 let nodeG = g.append("g").attr("class", "nodes");
 let simulation = d3.forceSimulation();
 
-// Load repo list, build dropdown, load first repo
+// --- Dropdown logic ---
+function populateDropdown(containerId, label, items, defaults, activeSet, onChange) {
+  const container = document.querySelector("#" + containerId + " .dropdown-menu");
+  container.innerHTML = "";
+  activeSet.clear();
+  items.forEach(item => {
+    const checked = defaults.includes(item);
+    if (checked) activeSet.add(item);
+    const labelEl = document.createElement("label");
+    labelEl.className = "dropdown-item";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = item;
+    cb.checked = checked;
+    cb.addEventListener("change", () => {
+      if (cb.checked) activeSet.add(item);
+      else activeSet.delete(item);
+      updateToggleLabel(containerId, label, activeSet, items.length);
+      onChange();
+    });
+    const span = document.createElement("span");
+    span.textContent = item;
+    labelEl.appendChild(cb);
+    labelEl.appendChild(span);
+    container.appendChild(labelEl);
+  });
+  updateToggleLabel(containerId, label, activeSet, items.length);
+}
+
+function updateToggleLabel(containerId, label, activeSet, total) {
+  const toggle = document.querySelector("#" + containerId + " .dropdown-toggle");
+  if (activeSet.size === total) toggle.textContent = label + ": all";
+  else if (activeSet.size === 0) toggle.textContent = label + ": none";
+  else toggle.textContent = label + ": " + activeSet.size + "/" + total;
+}
+
+// Close dropdowns when clicking outside
+document.addEventListener("click", (e) => {
+  document.querySelectorAll(".dropdown").forEach(d => {
+    if (!d.contains(e.target)) d.classList.remove("open");
+  });
+});
+document.querySelectorAll(".dropdown-toggle").forEach(btn => {
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const dd = btn.parentElement;
+    const wasOpen = dd.classList.contains("open");
+    document.querySelectorAll(".dropdown").forEach(d => d.classList.remove("open"));
+    if (!wasOpen) dd.classList.add("open");
+  });
+});
+
+// --- Repo loading ---
 fetch("/repos.json").then(r => r.json()).then(repos => {
   const select = document.getElementById("repo-switcher");
   repos.forEach(name => {
@@ -35,29 +88,17 @@ function loadRepo(name) {
 function currentData() { return viewMode === "files" ? allData.files : allData.symbols; }
 
 function buildFilters() {
-  const kinds = [...new Set(currentData().nodes.map(n => n.kind))];
-  activeKinds.clear();
-  if (viewMode === "files") kinds.forEach(k => activeKinds.add(k));
-  else { activeKinds.add("function"); activeKinds.add("class"); }
-  const container = document.getElementById("kind-filters");
-  container.innerHTML = "";
-  kinds.forEach(k => {
-    const btn = document.createElement("button");
-    btn.className = "btn" + (activeKinds.has(k) ? " active" : "");
-    btn.dataset.kind = k;
-    btn.textContent = k;
-    btn.onclick = () => {
-      if (activeKinds.has(k)) { activeKinds.delete(k); btn.classList.remove("active"); }
-      else { activeKinds.add(k); btn.classList.add("active"); }
-      render();
-    };
-    container.appendChild(btn);
-  });
+  const src = currentData();
+  const kinds = [...new Set(src.nodes.map(n => n.kind))].sort();
+  const langs = [...new Set(src.nodes.map(n => n.lang).filter(Boolean))].sort();
+  const defaultKinds = viewMode === "files" ? kinds : ["function", "class"];
+  populateDropdown("kind-dropdown", "Kind", kinds, defaultKinds, activeKinds, render);
+  populateDropdown("lang-dropdown", "Language", langs, langs, activeLangs, render);
 }
 
 function getVisible() {
   const src = currentData();
-  const nodes = src.nodes.filter(n => activeKinds.has(n.kind));
+  const nodes = src.nodes.filter(n => activeKinds.has(n.kind) && (!n.lang || activeLangs.has(n.lang)));
   const nodeIds = new Set(nodes.map(n => n.id));
   const links = src.links.filter(l => {
     const s = l.source?.id || l.source, t = l.target?.id || l.target;

@@ -148,18 +148,32 @@ pub struct RawEdge {
 }
 
 impl RawEdge {
-    /// Resolve raw edges into real edges using a name → SymbolId lookup.
-    /// Edges whose target_name doesn't match any symbol are dropped.
-    pub fn resolve(raw_edges: &[RawEdge], symbols: &[Symbol]) -> Vec<Edge> {
-        let name_to_id: std::collections::HashMap<&str, &SymbolId> = symbols
-            .iter()
-            .map(|s| (s.name.as_str(), &s.id))
-            .collect();
+    /// Resolve raw edges into real edges.
+    /// `ext_to_lang` maps file extensions to language names (e.g. "py" → "python", "ts" → "typescript").
+    /// Edges resolve only within the same language. Unresolvable edges are dropped.
+    pub fn resolve(
+        raw_edges: &[RawEdge],
+        symbols: &[Symbol],
+        ext_to_lang: &std::collections::HashMap<String, String>,
+    ) -> Vec<Edge> {
+        use std::collections::HashMap;
+
+        // Single pass: build both id→lang and (name, lang)→id lookups
+        let mut id_to_lang: HashMap<&str, &str> = HashMap::with_capacity(symbols.len());
+        let mut name_lang_to_id: HashMap<(&str, &str), &SymbolId> =
+            HashMap::with_capacity(symbols.len());
+        for s in symbols {
+            let Some(ext) = s.file_path.extension().and_then(|e| e.to_str()) else { continue };
+            let Some(lang) = ext_to_lang.get(ext) else { continue };
+            id_to_lang.insert(s.id.0.as_str(), lang.as_str());
+            name_lang_to_id.insert((s.name.as_str(), lang.as_str()), &s.id);
+        }
 
         raw_edges
             .iter()
             .filter_map(|re| {
-                let tid = name_to_id.get(re.target_name.as_str())?;
+                let src_lang = id_to_lang.get(re.source.0.as_str())?;
+                let tid = name_lang_to_id.get(&(re.target_name.as_str(), *src_lang))?;
                 Some(Edge {
                     source: re.source.clone(),
                     target: (*tid).clone(),

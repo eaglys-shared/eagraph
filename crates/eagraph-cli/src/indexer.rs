@@ -124,7 +124,8 @@ pub fn index_repo(
     // Pass 2: resolve raw edges → real edges
     let all_symbols: Vec<Symbol> = parsed.iter().flat_map(|p| p.symbols.clone()).collect();
     let all_raw: Vec<RawEdge> = parsed.iter().flat_map(|p| p.raw_edges.clone()).collect();
-    let all_resolved = RawEdge::resolve(&all_raw, &all_symbols);
+    let ext_to_lang = registry.ext_to_lang();
+    let all_resolved = RawEdge::resolve(&all_raw, &all_symbols, &ext_to_lang);
     total_edges = all_resolved.len();
 
     if !all_resolved.is_empty() {
@@ -335,7 +336,8 @@ pub fn auto_refresh(
     // Resolve edges against full symbol table
     let all_symbols = store.get_all_symbols().map_err(|e| anyhow::anyhow!("{}", e))?;
     let all_raw: Vec<eagraph_core::RawEdge> = parsed.iter().flat_map(|p| p.raw_edges.clone()).collect();
-    let resolved = eagraph_core::RawEdge::resolve(&all_raw, &all_symbols);
+    let ext_to_lang = registry.ext_to_lang();
+    let resolved = eagraph_core::RawEdge::resolve(&all_raw, &all_symbols, &ext_to_lang);
 
     if !resolved.is_empty() {
         store.upsert_edges(&resolved).map_err(|e| anyhow::anyhow!("{}", e))?;

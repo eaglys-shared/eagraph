@@ -15,18 +15,20 @@ Data is always fresh — eagraph auto-refreshes stale files before every query.
 
 ## When to use
 
-- Understanding a symbol → `eagraph --json context <name>`
-- Finding callers/dependents → `eagraph --json dependents <file>`
-- File structure → `eagraph --json symbols <file>`
-- Tracing call chains → `eagraph --json chain <from> <to>`
-- Finding symbols by name → `eagraph --json query <name>`
+- Understanding a symbol → `eagraph --json context <name> --repo <repo>`
+- Finding callers/dependents → `eagraph --json dependents <file> --repo <repo>`
+- File structure → `eagraph --json symbols <file> --repo <repo>`
+- Tracing call chains → `eagraph --json chain <from> <to> --repo <repo>`
+- Finding symbols by name → `eagraph --json query <name> --repo <repo>`
+
+`--repo` goes AFTER the subcommand. It auto-detects from cwd if omitted, but always include it to be safe. Check `eagraph --json status` for repo names.
 
 ## Commands
 
 ### Get structural context for a symbol
 
 ```bash
-eagraph --json context <symbol-name>
+eagraph --json context <symbol-name> --repo <repo>
 ```
 
 Returns the symbol's source code, all symbols it calls/imports/inherits, and all symbols that call/import/inherit it, with source snippets. Use `--depth 3` for deeper traversal.
@@ -34,7 +36,7 @@ Returns the symbol's source code, all symbols it calls/imports/inherits, and all
 ### Get dependents of a file
 
 ```bash
-eagraph --json dependents <file-path>
+eagraph --json dependents <file-path> --repo <repo>
 ```
 
 Returns every symbol in the file and what depends on each one. File path is relative to the repo root.
@@ -42,7 +44,7 @@ Returns every symbol in the file and what depends on each one. File path is rela
 ### List all symbols in a file
 
 ```bash
-eagraph --json symbols <file-path>
+eagraph --json symbols <file-path> --repo <repo>
 ```
 
 Table of contents for a file — every function, class, method with line ranges. Use this instead of reading entire files to understand structure.
@@ -50,13 +52,13 @@ Table of contents for a file — every function, class, method with line ranges.
 ### Find shortest call path between two symbols
 
 ```bash
-eagraph --json chain <from-symbol> <to-symbol>
+eagraph --json chain <from-symbol> <to-symbol> --repo <repo>
 ```
 
 ### Search for symbols by name
 
 ```bash
-eagraph --json query <name>
+eagraph --json query <name> --repo <repo>
 ```
 
 ### Check index status
@@ -82,7 +84,7 @@ Starts a local web server with an interactive force-directed graph.
 
 ## Tips
 
-- `--repo` is auto-detected from cwd. Only specify it when working across repos.
+- `--repo` goes after the subcommand, not before it. Always include it.
 - Use `--json` for all queries.
 - Use `context` as the first step when investigating any symbol.
 - Use `symbols` to understand a file's structure without reading it.

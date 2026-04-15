@@ -103,6 +103,14 @@ impl LanguageRegistry {
     pub fn supported_extensions(&self) -> Vec<&str> {
         self.extractors.keys().map(|s| s.as_str()).collect()
     }
+
+    /// Map of file extension → language name (e.g. "py" → "python", "ts" → "typescript").
+    pub fn ext_to_lang(&self) -> std::collections::HashMap<String, String> {
+        self.extractors
+            .iter()
+            .map(|(ext, e)| (ext.clone(), e.language_name().to_string()))
+            .collect()
+    }
 }
 
 /// Grammar config file format (the .toml next to the .so).

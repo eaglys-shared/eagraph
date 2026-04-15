@@ -1,10 +1,24 @@
 # eagraph
 
-A code knowledge graph that spans multiple repositories. Point it at your repos, and it builds a graph of symbols (functions, classes, methods, imports) and their relationships (calls, inheritance, imports). Query from the CLI, explore with an interactive visualization, or let Claude Code use it directly via the bundled skill.
+eagraph is a code knowledge graph designed to reduce the tokens Claude Code spends on navigation. When an agent needs to find callers, trace a call chain, or map a file's structure, it would otherwise chain several grep, glob, and read calls. eagraph answers the same question with a single query against a pre-built index. The project ships as a Claude Code skill, and it also runs as a standalone CLI.
 
 Written in Rust. Uses tree-sitter for parsing, SQLite for storage. All data lives in the OS application directory, never inside your repos.
 
-## Quick start
+## Using eagraph with Claude Code
+
+eagraph is primarily used as a Claude Code skill. Once the CLI is installed (see the next section) and your repositories are indexed, install the skill and agent with symlinks:
+
+```bash
+# Install skill (makes /eagraph command available)
+ln -s /path/to/eagraph/skill ~/.claude/skills/eagraph
+
+# Install agent (subagents use eagraph for code navigation)
+ln -s /path/to/eagraph/agent/eagraph-explorer.md ~/.claude/agents/eagraph-explorer.md
+```
+
+The skill teaches Claude to use `eagraph context`, `eagraph symbols`, etc. instead of chaining multiple grep/glob/read calls. The agent ensures subagents also prefer eagraph for code exploration.
+
+## Using eagraph as a CLI
 
 ```bash
 # Build
@@ -33,7 +47,7 @@ eagraph viz
 
 ## Commands
 
-All query commands support `--json` for structured output. `--repo` auto-detects from the current directory.
+These are the commands the skill invokes on Claude's behalf. They can also be run directly from the shell. All query commands support `--json` for structured output. `--repo` auto-detects from the current directory.
 
 | Command | What it does |
 |---|---|
@@ -64,7 +78,8 @@ This clones each grammar's repo, compiles it to a shared library, and installs i
 
 See all available grammars: `eagraph grammars list`
 
-For unlisted grammars, build manually:
+<details>
+<summary>Building an unlisted grammar manually</summary>
 
 ```bash
 git clone https://github.com/tree-sitter/tree-sitter-python
@@ -79,24 +94,12 @@ cc -shared -fPIC -O2 -I. parser.c scanner.c -o python.so
 
 Then place the `.so`/`.dylib` alongside a `.scm` (query patterns) and `.toml` (extensions config) in the grammars directory. See `grammars/python.scm` and `grammars/python.toml` for examples.
 
-## Claude Code integration
-
-eagraph ships with a skill and an agent for Claude Code.
-
-```bash
-# Install skill (makes /eagraph command available)
-ln -s /path/to/eagraph/skill ~/.claude/skills/eagraph
-
-# Install agent (subagents use eagraph for code navigation)
-ln -s /path/to/eagraph/agent/eagraph-explorer.md ~/.claude/agents/eagraph-explorer.md
-```
-
-The skill teaches Claude to use `eagraph context`, `eagraph symbols`, etc. instead of doing multiple grep/glob/read calls. The agent ensures subagents also prefer eagraph for code exploration.
+</details>
 
 ## Running tests
 
 ```bash
-cargo test --workspace    # 32 tests
+cargo test --workspace
 ```
 
 The build script compiles a Python grammar `.so` from vendored C sources, then tests load it via `dlopen` to exercise the same dynamic loading path as production.

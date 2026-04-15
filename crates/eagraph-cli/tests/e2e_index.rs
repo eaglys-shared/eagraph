@@ -139,7 +139,9 @@ fn index_and_query_sample_repo() {
     assert!(!all_symbols.is_empty(), "no symbols extracted");
     assert!(!all_raw_edges.is_empty(), "no raw edges extracted");
 
-    let resolved_edges = eagraph_core::RawEdge::resolve(&all_raw_edges, &all_symbols);
+    let ext_to_lang: std::collections::HashMap<String, String> =
+        [("py", "python"), ("pyi", "python")].iter().map(|(e, l)| (e.to_string(), l.to_string())).collect();
+    let resolved_edges = eagraph_core::RawEdge::resolve(&all_raw_edges, &all_symbols, &ext_to_lang);
 
     store.upsert_symbols(&all_symbols).unwrap();
     store.upsert_edges(&resolved_edges).unwrap();

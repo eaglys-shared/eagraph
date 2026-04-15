@@ -12,8 +12,8 @@
   name: (method_index_expression
     method: (identifier) @func.name)) @func.def
 
-; Local function declarations
-(local_function_declaration
+; Local function statements
+(local_function_statement
   name: (identifier) @func.name) @func.def
 
 ; Function calls

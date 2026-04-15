@@ -707,11 +707,16 @@ fn cmd_add(config_path: &PathBuf, path: &str, name_override: Option<&str>, gramm
 
     let (installed_exts, missing_langs) = scan_repo_extensions(&repo_path, grammars_dir);
 
-    // Include patterns for all detected extensions (installed grammars only)
-    let include = if installed_exts.is_empty() {
+    // Include ALL detected extensions — both installed and missing grammars.
+    // This way, after installing a grammar later, the files are already in scope.
+    let mut all_exts: std::collections::BTreeSet<String> = installed_exts.iter().cloned().collect();
+    for (_, ext) in &missing_langs {
+        all_exts.insert(ext.clone());
+    }
+    let include = if all_exts.is_empty() {
         String::new()
     } else {
-        let patterns: Vec<String> = installed_exts.iter().map(|e| format!("\"**/*.{}\"", e)).collect();
+        let patterns: Vec<String> = all_exts.iter().map(|e| format!("\"**/*.{}\"", e)).collect();
         format!("include = [{}]\n", patterns.join(", "))
     };
 

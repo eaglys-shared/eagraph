@@ -67,5 +67,7 @@ All query commands support `--json` global flag.
 
 ```
 cargo check --workspace
-cargo test --workspace               # 32 tests
+cargo test --workspace
 ```
+
+Add relevant tests after every implementation. Every new feature, bug fix, or behavior change gets a test.

@@ -61,11 +61,15 @@ fn build_graph_json(symbols: &[Symbol], edges: &[Edge]) -> String {
     let sym_nodes: Vec<serde_json::Value> = symbols
         .iter()
         .map(|s| {
+            let lang = s.file_path.extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
             serde_json::json!({
                 "id": s.id.0,
                 "name": s.name,
                 "kind": s.kind.to_string(),
                 "file": s.file_path.to_str().unwrap_or(""),
+                "lang": lang,
                 "lineStart": s.line_start,
                 "lineEnd": s.line_end,
             })
@@ -98,12 +102,11 @@ fn build_graph_json(symbols: &[Symbol], edges: &[Edge]) -> String {
     let file_nodes: Vec<serde_json::Value> = file_symbol_count
         .iter()
         .map(|(file, count)| {
-            let short = std::path::Path::new(file)
-                .file_name()
-                .and_then(|f| f.to_str())
-                .unwrap_or(file);
+            let p = std::path::Path::new(file);
+            let short = p.file_name().and_then(|f| f.to_str()).unwrap_or(file);
+            let lang = p.extension().and_then(|e| e.to_str()).unwrap_or("");
             serde_json::json!({
-                "id": file, "name": short, "kind": "file", "file": file, "symbols": count,
+                "id": file, "name": short, "kind": "file", "file": file, "lang": lang, "symbols": count,
             })
         })
         .collect();
