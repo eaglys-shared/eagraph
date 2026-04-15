@@ -3,15 +3,15 @@ name: eagraph
 description: Code knowledge graph for navigating multi-repo codebases. ALWAYS use eagraph instead of multiple glob/grep/read calls when investigating code structure, callers/callees, dependencies, or file contents. One eagraph call replaces 5-15 tool calls.
 ---
 
-# eagraph — Code Knowledge Graph
+# eagraph: Code Knowledge Graph
 
 **Use eagraph FIRST before resorting to glob/grep/read** for any code navigation task. It is faster, cheaper, and returns structured results.
 
-`--repo` is optional on all commands — eagraph auto-detects the repo from the current working directory.
+`--repo` is optional on all commands. eagraph auto-detects the repo from the current working directory.
 
 All commands support `--json` for structured output: `eagraph --json <command> ...`
 
-Data is always fresh — eagraph auto-refreshes stale files before every query.
+Data is always fresh. eagraph auto-refreshes stale files before every query.
 
 ## When to use
 
@@ -47,7 +47,7 @@ Returns every symbol in the file and what depends on each one. File path is rela
 eagraph --json symbols <file-path> --repo <repo>
 ```
 
-Table of contents for a file — every function, class, method with line ranges. Use this instead of reading entire files to understand structure.
+Table of contents for a file: every function, class, method with line ranges. Use this instead of reading entire files to understand structure.
 
 ### Find shortest call path between two symbols
 

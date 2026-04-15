@@ -65,7 +65,7 @@ fn ct(mime: &str) -> Header {
 
 /// Paths in symbols/edges originate from the DB, where they are validated as UTF-8
 /// at upsert time (see eagraph_core::path_to_str in the store). A non-UTF-8 path
-/// here means the invariant was violated upstream — surface it as a panic.
+/// here means the invariant was violated upstream. Surface it as a panic.
 fn path_str(p: &std::path::Path) -> &str {
     p.to_str()
         .expect("file_path must be UTF-8 (enforced at store boundary)")

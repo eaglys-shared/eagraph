@@ -19,8 +19,8 @@ Written in Rust. Uses tree-sitter for parsing, SQLite for storage. All data live
 
 Download a precompiled binary from the [latest release](https://github.com/eaglys-shared/eagraph/releases/latest). Two targets are published per tag:
 
-- `x86_64-unknown-linux-gnu` — Linux x86_64
-- `aarch64-apple-darwin` — macOS Apple Silicon
+- `x86_64-unknown-linux-gnu`: Linux x86_64
+- `aarch64-apple-darwin`: macOS Apple Silicon
 
 Intel Mac builds are not published. Intel Mac users should build from source (below).
 

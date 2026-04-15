@@ -574,5 +574,5 @@ fn resolve_edges_cross_language_dropped() {
         .collect();
 
     let resolved = RawEdge::resolve(&raw, &symbols, &ext_to_lang);
-    assert_eq!(resolved.len(), 0); // dropped — no Python Response exists
+    assert_eq!(resolved.len(), 0); // dropped because no Python Response exists
 }

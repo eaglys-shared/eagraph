@@ -62,7 +62,7 @@ pub fn index_repo(
 
     let skipped = AtomicUsize::new(0);
 
-    // Phase 1: read, hash, check, parse — in parallel
+    // Phase 1: read, hash, check, parse, in parallel
     let parsed: Vec<ParsedFile> = files
         .par_iter()
         .filter_map(|file_path| {
@@ -229,7 +229,7 @@ fn collect_files(root: &Path, include: &[String], exclude: &[String]) -> Result<
 }
 
 /// Check for stale files and re-index them before a query.
-/// Uses mtime comparison — if a file's mtime is newer than its last_indexed
+/// Uses mtime comparison. Re-indexes when a file's mtime is newer than its last_indexed
 /// timestamp, or if the file is new (not in DB), re-index it.
 pub fn auto_refresh(
     store: &SqliteGraphStore,

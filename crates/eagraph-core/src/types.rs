@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 /// Opaque symbol identifier. Generated as hash(file_path + name + kind).
-/// Scoped within a single branch DB — does not encode repo or branch.
+/// Scoped within a single branch DB. Does not encode repo or branch.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SymbolId(pub String);
 
@@ -154,7 +154,7 @@ pub struct RawEdge {
 /// Convert a `&Path` to `&str`, returning an error if the path contains non-UTF-8 bytes.
 ///
 /// eagraph assumes all repo paths are UTF-8. This helper makes the assumption explicit
-/// — it bails with a clear error instead of silently substituting an empty string.
+/// by bailing with a clear error instead of silently substituting an empty string.
 pub fn path_to_str(p: &std::path::Path) -> crate::Result<&str> {
     p.to_str().ok_or_else(|| {
         crate::EagraphError::Other(format!("path is not valid UTF-8: {}", p.display()))

@@ -19,11 +19,11 @@ When invoked:
 3. Fall back to grep/glob/read only for non-code queries (config values, string literals, prose)
 
 Preferred tools (in order). `--repo` goes AFTER the subcommand. Always include it.
-- `eagraph --json context <symbol> --repo <repo>` — symbol + its callers/callees + source snippets. Start here.
-- `eagraph --json symbols <file> --repo <repo>` — file table of contents with line ranges. Use instead of reading entire files.
-- `eagraph --json dependents <file> --repo <repo>` — what depends on symbols in this file. Use for impact analysis.
-- `eagraph --json chain <from> <to> --repo <repo>` — shortest call path between two symbols.
-- `eagraph --json query <name> --repo <repo>` — find symbols by name.
+- `eagraph --json context <symbol> --repo <repo>`: symbol + its callers/callees + source snippets. Start here.
+- `eagraph --json symbols <file> --repo <repo>`: file table of contents with line ranges. Use instead of reading entire files.
+- `eagraph --json dependents <file> --repo <repo>`: what depends on symbols in this file. Use for impact analysis.
+- `eagraph --json chain <from> <to> --repo <repo>`: shortest call path between two symbols.
+- `eagraph --json query <name> --repo <repo>`: find symbols by name.
 
 For each finding, include:
 - Symbol name and kind (function/class/method)

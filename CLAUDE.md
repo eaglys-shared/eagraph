@@ -75,4 +75,4 @@ Add relevant tests after every implementation. Every new feature, bug fix, or be
 
 ## Warnings policy
 
-Warnings are delayed errors. Treat `cargo clippy -D warnings` and `cargo fmt --check` as blocking gates on every change, not as optional cleanup. Before declaring any task done, run both and fix anything they surface. Do not defer warning cleanup to a later pass. If a lint is a genuine false positive, suppress it locally with `#[allow(...)]` and a one-line comment explaining why — do not weaken the workspace gate.
+Warnings are delayed errors. Treat `cargo clippy -D warnings` and `cargo fmt --check` as blocking gates on every change, not as optional cleanup. Before declaring any task done, run both and fix anything they surface. Do not defer warning cleanup to a later pass. If a lint is a genuine false positive, suppress it locally with `#[allow(...)]` and a one-line comment explaining why. Do not weaken the workspace gate.

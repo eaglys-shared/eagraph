@@ -1,4 +1,4 @@
-# eagraph — Implementation Milestones
+# eagraph: Implementation Milestones
 
 Each milestone builds on the previous and is independently testable.
 
@@ -44,7 +44,7 @@ Live indexing and MCP protocol for LLM tool use.
 - Per-branch DB management, branch switch detection
 - `eagraph serve` command (MCP over stdio)
 - MCP tool registration: get_context, search_symbols, get_dependents, etc.
-- `eagraph prune [--repo X]` — delete stale branch DBs
+- `eagraph prune [--repo X]`: delete stale branch DBs
 
 **Done when:**
 - `eagraph serve` accepts JSON-RPC over stdio, connectable from Claude Code

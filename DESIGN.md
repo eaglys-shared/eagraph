@@ -378,9 +378,9 @@ repo B ("shared-lib") finishes indexing
       -> if not found: leave it (symbol doesn't exist yet, or path is wrong)
 ```
 
-This is a SQL join, not a parse. The expensive work (tree-sitter) already happened. Reconciliation is bookkeeping — milliseconds even with thousands of unresolved refs.
+This is a SQL join, not a parse. The expensive work (tree-sitter) already happened. Reconciliation is bookkeeping that takes milliseconds even with thousands of unresolved refs.
 
-**Order independence:** because reconciliation runs from both directions, the order in which repos are added and indexed does not matter. Add repo A first, then B, then C — or C, A, B — you converge on the same set of cross-repo edges.
+**Order independence:** because reconciliation runs from both directions, the order in which repos are added and indexed does not matter. Whether you add repos A→B→C or C→A→B or in any other sequence, you converge on the same set of cross-repo edges.
 
 **Interactive dependency setup:**
 
@@ -448,7 +448,7 @@ struct ContextResult {
 }
 ```
 
-`ContextResult` includes `unresolved_refs` so the MCP response can surface them. If a query returns unresolved refs, the LLM (or the user) knows there are declared dependencies that couldn't be matched to actual symbols — either the target repo isn't indexed yet, or the import path doesn't match any symbol.
+`ContextResult` includes `unresolved_refs` so the MCP response can surface them. If a query returns unresolved refs, the LLM (or the user) knows there are declared dependencies that couldn't be matched to actual symbols. Either the target repo isn't indexed yet, or the import path doesn't match any symbol.
 
 `get_combined_context` merges graph neighbors with embedding nearest-neighbors, deduplicates, and ranks. The merge strategy is a config knob.
 
@@ -468,29 +468,29 @@ JSON-RPC over stdio (for Claude Code / local tools) and SSE (for remote clients 
 
 **Tools always available:**
 
-`get_context(repo, symbol_name, max_depth=3)` — Structural subgraph + snippets from ContextRetriever. Includes cross-repo edges when they exist.
+`get_context(repo, symbol_name, max_depth=3)`: Structural subgraph + snippets from ContextRetriever. Includes cross-repo edges when they exist.
 
-`get_file_symbols(repo, file_path)` — All symbols in a file.
+`get_file_symbols(repo, file_path)`: All symbols in a file.
 
-`search_symbols(query, kind?, repo?)` — Exact/fuzzy search over symbol names. Searches all repos if `repo` is omitted.
+`search_symbols(query, kind?, repo?)`: Exact/fuzzy search over symbol names. Searches all repos if `repo` is omitted.
 
-`get_dependents(repo, file_path, max_depth=2)` — Reverse traversal. "What breaks if I change this?" Crosses repo boundaries via `crossref.db`.
+`get_dependents(repo, file_path, max_depth=2)`: Reverse traversal. "What breaks if I change this?" Crosses repo boundaries via `crossref.db`.
 
-`get_call_chain(from_symbol, to_symbol)` — Shortest path between two symbols. Works across repos.
+`get_call_chain(from_symbol, to_symbol)`: Shortest path between two symbols. Works across repos.
 
-`get_cross_repo_impact(repo, symbol, depth=2)` — Like get_dependents but specifically surfaces cross-repo consumers. "What in other repos breaks if I change this?"
+`get_cross_repo_impact(repo, symbol, depth=2)`: Like get_dependents but specifically surfaces cross-repo consumers. "What in other repos breaks if I change this?"
 
-`list_repos()` — List all indexed repos, their branches, and index status.
+`list_repos()`: List all indexed repos, their branches, and index status.
 
-`list_deps()` — List all `[[deps]]` mappings and their resolution status (how many resolved edges vs. unresolved refs per mapping).
+`list_deps()`: List all `[[deps]]` mappings and their resolution status (how many resolved edges vs. unresolved refs per mapping).
 
-`list_unresolved()` — List all unresolved cross-repo refs. Useful for debugging missing edges.
+`list_unresolved()`: List all unresolved cross-repo refs. Useful for debugging missing edges.
 
 **Tools conditionally available (when EmbeddingStore is configured):**
 
-`semantic_search(query, k=10)` — Natural language search over code snippets.
+`semantic_search(query, k=10)`: Natural language search over code snippets.
 
-`smart_context(query, symbol?)` — Combined structural + semantic retrieval.
+`smart_context(query, symbol?)`: Combined structural + semantic retrieval.
 
 The MCP server registers tools dynamically based on what's available. No `EmbeddingStore` configured = semantic tools simply don't appear in the tool list.
 
@@ -525,7 +525,7 @@ The MCP server registers tools dynamically based on what's available. No `Embedd
 
 The `annotations` field is only present when enrichers have produced data. No enrichers configured = no field, zero noise.
 
-The `unresolved` field surfaces cross-repo refs that couldn't be matched to actual symbols. This tells the LLM (or the user) that there are known dependencies that aren't in the graph yet — either because the target repo isn't indexed, or the `[[deps]]` mapping is missing, or the import path doesn't match any symbol.
+The `unresolved` field surfaces cross-repo refs that couldn't be matched to actual symbols. This tells the LLM (or the user) that there are known dependencies missing from the graph. Either the target repo isn't indexed, the `[[deps]]` mapping is missing, or the import path doesn't match any symbol.
 
 ### 9. Snippet Reader
 

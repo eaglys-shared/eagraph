@@ -31,9 +31,9 @@ impl LanguageRegistry {
     /// Expected layout:
     /// ```text
     /// grammars/
-    ///   python.so (or .dylib)     — compiled tree-sitter grammar
-    ///   python.scm                — query patterns
-    ///   python.toml               — config (extensions, module_separator)
+    ///   python.so (or .dylib)     : compiled tree-sitter grammar
+    ///   python.scm                : query patterns
+    ///   python.toml               : config (extensions, module_separator)
     ///   typescript.so
     ///   typescript.scm
     ///   typescript.toml
@@ -50,7 +50,7 @@ impl LanguageRegistry {
             return Ok(Self { extractors });
         }
 
-        // Find all .toml config files — each one defines a language
+        // Find all .toml config files. Each one defines a language.
         let entries = std::fs::read_dir(grammars_dir).map_err(|e| {
             EagraphError::Config(format!("reading {}: {}", grammars_dir.display(), e))
         })?;

@@ -173,7 +173,7 @@ impl LanguageExtractor for GenericExtractor {
             }
         }
 
-        // Process functions — determine method vs function from class containment
+        // Process functions, determining method vs function from class containment
         let mut func_ranges: Vec<(Range<usize>, eagraph_core::SymbolId)> = Vec::new();
         for f in &funcs {
             let enclosing_class = find_enclosing_name(&classes, f.range.start);

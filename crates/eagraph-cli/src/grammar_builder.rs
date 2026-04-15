@@ -344,7 +344,7 @@ pub fn cmd_grammars_check(config: &eagraph_core::Config, grammars_dir: &Path) ->
                     .push((ext.clone(), *count));
             }
         }
-        // Don't report unknown extensions — too noisy (images, configs, etc.)
+        // Unknown extensions are too noisy to report (images, configs, etc.)
     }
 
     if !covered.is_empty() {

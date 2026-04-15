@@ -6,7 +6,7 @@ use eagraph_core::*;
 
 pub use snippet::read_snippet;
 
-/// Result of a context retrieval — symbols with source snippets and their edges.
+/// Result of a context retrieval: symbols with source snippets and their edges.
 pub struct ContextEntry {
     pub symbol: Symbol,
     pub snippet: String,

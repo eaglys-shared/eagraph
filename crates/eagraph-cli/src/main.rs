@@ -335,8 +335,8 @@ fn cmd_status(
         println!();
         for (name, branch, count) in &items {
             match count {
-                Some(n) => println!("  {} (branch: {}) — {} symbols", name, branch, n),
-                None => println!("  {} (branch: {}) — not indexed", name, branch),
+                Some(n) => println!("  {} (branch: {}): {} symbols", name, branch, n),
+                None => println!("  {} (branch: {}): not indexed", name, branch),
             }
         }
     }
@@ -831,7 +831,7 @@ fn cmd_add(
 
     let (installed_exts, missing_langs) = scan_repo_extensions(&repo_path, grammars_dir);
 
-    // Include ALL detected extensions — both installed and missing grammars.
+    // Include ALL detected extensions: both installed and missing grammars.
     // This way, after installing a grammar later, the files are already in scope.
     let mut all_exts: std::collections::BTreeSet<String> = installed_exts.iter().cloned().collect();
     for (_, ext) in &missing_langs {
