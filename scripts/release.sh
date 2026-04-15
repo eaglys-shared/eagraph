@@ -7,6 +7,9 @@
 # Picking the right version is a decision, not an increment — the
 # contributor has to name it.
 #
+# The release commit only touches Cargo.toml and Cargo.lock. Unrelated
+# uncommitted or untracked files are left alone.
+#
 # Usage:
 #   scripts/release.sh 0.1.1
 #   scripts/release.sh 0.2.0
@@ -26,18 +29,14 @@ if [[ ! "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     exit 1
 fi
 
-# Preflight.
-if [[ -n "$(git status --porcelain)" ]]; then
-    echo "error: working tree has uncommitted changes" >&2
+# Must be on main.
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+if [[ "$BRANCH" != "main" ]]; then
+    echo "error: must be on main branch (currently on $BRANCH)" >&2
     exit 1
 fi
-if [[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]]; then
-    echo "error: must be on main branch (currently on $(git rev-parse --abbrev-ref HEAD))" >&2
-    exit 1
-fi
-git fetch --tags origin main
 
-# Read current version from the workspace.
+# Read current workspace version.
 CURRENT=$(awk -F '"' '/^version = / { print $2; exit }' Cargo.toml)
 if [[ -z "$CURRENT" ]]; then
     echo "error: could not read version from Cargo.toml" >&2
@@ -54,6 +53,17 @@ if (( NMAJ < CMAJ )) \
     echo "error: new version $NEW is not greater than current $CURRENT" >&2
     exit 1
 fi
+
+# Cargo.toml and Cargo.lock must themselves be clean; we are about to
+# rewrite and commit them and we don't want to sweep in unrelated work.
+# Other uncommitted or untracked files elsewhere are ignored.
+if ! git diff --quiet -- Cargo.toml Cargo.lock \
+   || ! git diff --cached --quiet -- Cargo.toml Cargo.lock; then
+    echo "error: Cargo.toml or Cargo.lock has uncommitted changes — commit or revert them first" >&2
+    exit 1
+fi
+
+git fetch --tags origin main
 
 TAG="v$NEW"
 if git rev-parse "$TAG" >/dev/null 2>&1; then
