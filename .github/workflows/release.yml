@@ -44,7 +44,9 @@ jobs:
           staging="eagraph-${GITHUB_REF_NAME}-${{ matrix.target }}"
           mkdir -p "$staging"
           cp "target/${{ matrix.target }}/release/eagraph" "$staging/"
-          cp README.md LICENSE "$staging/" 2>/dev/null || true
+          cp README.md "$staging/" 2>/dev/null || true
+          cp -r skill "$staging/"
+          cp -r agent "$staging/"
           tar -czf "${staging}.tar.gz" "$staging"
           shasum -a 256 "${staging}.tar.gz" > "${staging}.tar.gz.sha256"
           echo "ARCHIVE=${staging}.tar.gz" >> "$GITHUB_ENV"

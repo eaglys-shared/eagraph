@@ -5,35 +5,17 @@
 
 <img width="1783" height="940" alt="image" src="https://github.com/user-attachments/assets/5273145f-6814-46da-9e65-34893526bd85" />
 
-<sup>
-  <sub>
-    <i>ALCHEMISTA Labs code graph</i>
-  </sub>
-</sup>
+<p align="center">
+  <sub><i>ALCHEMISTA Labs code graph</i></sub>
+</p>
 
 ---
 
-eagraph is a code knowledge graph designed to reduce the tokens Claude Code spends on navigation. When an agent needs to find callers, trace a call chain, or map a file's structure, it would otherwise chain several grep, glob, and read calls. eagraph answers the same question with a single query against a pre-built index. The project ships as a Claude Code skill, and it also runs as a standalone CLI. Additionally, eagraph includes embedded graph visualizer.
+eagraph is a code knowledge graph designed to reduce the tokens Claude Code spends on navigation. When an agent needs to find callers, trace a call chain, or map a file's structure, it would otherwise chain several grep, glob, and read calls. eagraph answers the same question with a single query against a pre-built index. The project ships as a Claude Code skill, runs as a standalone CLI, and includes an interactive graph visualizer for browsing your codebase.
 
 Written in Rust. Uses tree-sitter for parsing, SQLite for storage. All data lives in the OS application directory, never inside your repos.
 
-## Using eagraph with Claude Code
-
-eagraph is primarily used as a Claude Code skill. Once the CLI is installed (see the next section) and your repositories are indexed, install the skill and agent with symlinks:
-
-```bash
-# Install skill (makes /eagraph command available)
-ln -s /path/to/eagraph/skill ~/.claude/skills/eagraph
-
-# Install agent (subagents use eagraph for code navigation)
-ln -s /path/to/eagraph/agent/eagraph-explorer.md ~/.claude/agents/eagraph-explorer.md
-```
-
-The skill teaches Claude to use `eagraph context`, `eagraph symbols`, etc. instead of chaining multiple grep/glob/read calls. The agent ensures subagents also prefer eagraph for code exploration.
-
-## Using eagraph as a CLI
-
-### Install
+## Install
 
 Download a precompiled binary from the [latest release](https://github.com/eaglys-shared/eagraph/releases/latest). Two targets are published per tag:
 
@@ -42,15 +24,16 @@ Download a precompiled binary from the [latest release](https://github.com/eagly
 
 Intel Mac builds are not published. Intel Mac users should build from source (below).
 
-Each archive ships the `eagraph` binary alongside a `.sha256` for verification. Extract, verify, place on PATH:
+Each Release page lists the `.tar.gz` tarball and a sibling `.tar.gz.sha256` file per target. Download both, verify the archive, then install the binary:
 
 ```bash
+# Download the tarball and its .sha256 sidecar from the Release page first.
 tar -xzf eagraph-v<X.Y.Z>-<target>.tar.gz
 shasum -a 256 -c eagraph-v<X.Y.Z>-<target>.tar.gz.sha256
 sudo install eagraph-v<X.Y.Z>-<target>/eagraph /usr/local/bin/
 ```
 
-#### macOS: unsigned binary
+### macOS: unsigned binary
 
 The macOS builds are **not code-signed or notarized**. Gatekeeper will refuse to launch the binary on first run with an error similar to *"eagraph cannot be opened because the developer cannot be verified."* Remove the quarantine attribute to allow it through:
 
@@ -58,16 +41,32 @@ The macOS builds are **not code-signed or notarized**. Gatekeeper will refuse to
 xattr -d com.apple.quarantine /usr/local/bin/eagraph
 ```
 
-One-time step. Apply it to the installed path. If you prefer to avoid the unsigned binary entirely, build from source — the result is byte-equivalent up to reproducibility flags.
+One-time step. Apply it to the installed path. If you prefer to avoid the unsigned binary entirely, build from source (below).
 
 ### Build from source
+
+Requires a stable Rust toolchain (install via [rustup](https://rustup.rs)).
 
 ```bash
 cargo build --release -p eagraph-cli
 sudo install target/release/eagraph /usr/local/bin/
 ```
 
-### Use
+## Using eagraph with Claude Code
+
+eagraph is primarily used as a Claude Code skill. Once the CLI is on your PATH, copy the `skill/` and `agent/` directories into your Claude Code config. Both ship inside the release tarball alongside the binary; if you built from source, they are at the top of the repo checkout.
+
+```bash
+mkdir -p ~/.claude/skills ~/.claude/agents
+cp -r skill ~/.claude/skills/eagraph
+cp agent/eagraph-explorer.md ~/.claude/agents/
+```
+
+On upgrade, re-run these copies after extracting the new tarball (or pulling the new source). The skill teaches Claude to use `eagraph context`, `eagraph symbols`, etc. instead of chaining multiple grep/glob/read calls. The agent ensures subagents also prefer eagraph for code exploration.
+
+If Claude Code documents different install paths for your platform or version, follow those. The commands above are the standard Unix locations.
+
+## Using eagraph as a CLI
 
 ```bash
 # Install grammars for your languages
@@ -92,7 +91,7 @@ eagraph viz
 
 ## Commands
 
-These are the commands the skill invokes on Claude's behalf. They can also be run directly from the shell. All query commands support `--json` for structured output. `--repo` auto-detects from the current directory.
+Two families: query commands (`query`, `context`, `dependents`, `symbols`, `chain`) are what the Claude Code skill invokes on the agent's behalf; the rest are admin and setup. All query commands support `--json` for structured output. `--repo` auto-detects from the current working directory.
 
 | Command | What it does |
 |---|---|
@@ -113,7 +112,7 @@ These are the commands the skill invokes on Claude's behalf. They can also be ru
 
 Data is always fresh. Every query checks file mtimes and re-indexes stale files automatically.
 
-## Installing grammars
+## Grammars
 
 ```bash
 eagraph grammars add python typescript rust go java
@@ -160,7 +159,7 @@ crates/
   eagraph-cli/              binary with all commands
   eagraph-crossref/         cross-repo resolution (stub)
   eagraph-mcp/              MCP server (stub)
-grammars/                   .scm + .toml for 19 languages, registry.toml
+grammars/                   .scm + .toml per language, registry.toml
 skill/                      Claude Code skill
 agent/                      Claude Code subagent definition
 tests/fixtures/
