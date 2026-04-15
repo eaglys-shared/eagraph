@@ -4,7 +4,7 @@ use std::path::Path;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language as TsLanguage, Node, Parser, Query, QueryCursor};
 
-use eagraph_core::{EdgeKind, EagraphError, RawEdge, Symbol, SymbolKind};
+use eagraph_core::{EagraphError, EdgeKind, RawEdge, Symbol, SymbolKind};
 
 use crate::symbol_id::make_symbol_id;
 use crate::LanguageExtractor;
@@ -90,6 +90,9 @@ impl LanguageExtractor for GenericExtractor {
         file_path: &Path,
         source: &str,
     ) -> eagraph_core::Result<(Vec<Symbol>, Vec<RawEdge>)> {
+        // All downstream symbol-ID hashing and DB storage assumes UTF-8 paths.
+        let file_path_str = eagraph_core::path_to_str(file_path)?;
+
         let mut parser = Parser::new();
         parser
             .set_language(&self.config.ts_language)
@@ -122,27 +125,27 @@ impl LanguageExtractor for GenericExtractor {
 
             match prefix {
                 "class" => {
-                    if let Some(raw) = extract_raw_class(&capture_names, m, src, file_path) {
+                    if let Some(raw) = extract_raw_class(capture_names, m, src, file_path_str) {
                         classes.push(raw);
                     }
                 }
                 "func" => {
-                    if let Some(raw) = extract_raw_func(&capture_names, m, src) {
+                    if let Some(raw) = extract_raw_func(capture_names, m, src) {
                         funcs.push(raw);
                     }
                 }
                 "call" | "method_call" => {
-                    if let Some(raw) = extract_raw_call(&capture_names, m, src, prefix) {
+                    if let Some(raw) = extract_raw_call(capture_names, m, src, prefix) {
                         calls.push(raw);
                     }
                 }
                 "import" => {
-                    if let Some(raw) = extract_raw_import(&capture_names, m, src) {
+                    if let Some(raw) = extract_raw_import(capture_names, m, src) {
                         imports.push(raw);
                     }
                 }
                 "from_import" => {
-                    if let Some(raw) = extract_raw_from_import(&capture_names, m, src) {
+                    if let Some(raw) = extract_raw_from_import(capture_names, m, src) {
                         from_imports.push(raw);
                     }
                 }
@@ -182,7 +185,7 @@ impl LanguageExtractor for GenericExtractor {
                 None => (SymbolKind::Function, "function", f.raw_name.clone()),
             };
 
-            let id = make_symbol_id(file_path, &name, kind_str);
+            let id = make_symbol_id(file_path_str, &name, kind_str);
             symbols.push(Symbol {
                 id: id.clone(),
                 name,
@@ -196,13 +199,12 @@ impl LanguageExtractor for GenericExtractor {
         }
         func_ranges.sort_by_key(|(r, _)| r.start);
 
-        let file_scope_id =
-            make_symbol_id(file_path, file_path.to_str().unwrap_or(""), "module");
+        let file_scope_id = make_symbol_id(file_path_str, file_path_str, "module");
 
         // Emit file-level module symbol so it can be an edge source
         symbols.push(Symbol {
             id: file_scope_id.clone(),
-            name: file_path.to_str().unwrap_or("").to_string(),
+            name: file_path_str.to_string(),
             kind: SymbolKind::Module,
             file_path: file_path.to_path_buf(),
             line_start: 1,
@@ -240,7 +242,7 @@ impl LanguageExtractor for GenericExtractor {
 
         // Process imports
         for imp in &imports {
-            let id = make_symbol_id(file_path, &imp.name, "module");
+            let id = make_symbol_id(file_path_str, &imp.name, "module");
             symbols.push(Symbol {
                 id,
                 name: imp.name.clone(),
@@ -264,7 +266,7 @@ impl LanguageExtractor for GenericExtractor {
                 } else {
                     format!("{}{}{}", fi.module_name, sep, imported)
                 };
-                let import_id = make_symbol_id(file_path, &full_path, "module");
+                let import_id = make_symbol_id(file_path_str, &full_path, "module");
                 edges.push(RawEdge {
                     source: scope_id.clone(),
                     target_name: full_path.clone(),
@@ -303,12 +305,12 @@ fn extract_raw_class(
     names: &[&str],
     m: &tree_sitter::QueryMatch,
     src: &[u8],
-    file_path: &Path,
+    file_path_str: &str,
 ) -> Option<RawClass> {
     let def = get_capture(names, m, "class.def")?;
     let name_node = get_capture(names, m, "class.name")?;
     let name = name_node.utf8_text(src).ok()?.to_string();
-    let id = make_symbol_id(file_path, &name, "class");
+    let id = make_symbol_id(file_path_str, &name, "class");
 
     let mut base_names = Vec::new();
     if let Some(bases) = get_capture(names, m, "class.bases") {
@@ -329,7 +331,7 @@ fn extract_raw_class(
             id,
             name,
             kind: SymbolKind::Class,
-            file_path: file_path.to_path_buf(),
+            file_path: std::path::PathBuf::from(file_path_str),
             line_start: def.start_position().row as u32 + 1,
             line_end: def.end_position().row as u32 + 1,
             metadata: None,
@@ -338,11 +340,7 @@ fn extract_raw_class(
     })
 }
 
-fn extract_raw_func(
-    names: &[&str],
-    m: &tree_sitter::QueryMatch,
-    src: &[u8],
-) -> Option<RawFunc> {
+fn extract_raw_func(names: &[&str], m: &tree_sitter::QueryMatch, src: &[u8]) -> Option<RawFunc> {
     let def = get_capture(names, m, "func.def")?;
     let name_node = get_capture(names, m, "func.name")?;
     let raw_name = name_node.utf8_text(src).ok()?.to_string();
@@ -400,9 +398,9 @@ fn extract_raw_from_import(
     src: &[u8],
 ) -> Option<RawFromImport> {
     let def = get_capture(names, m, "from_import.def")?;
-    let module_name = get_capture(names, m, "from_import.module")
-        .and_then(|n| n.utf8_text(src).ok())
-        .unwrap_or("")
+    let module_name = get_capture(names, m, "from_import.module")?
+        .utf8_text(src)
+        .ok()?
         .to_string();
 
     // Collect imported names from the statement's children
@@ -410,7 +408,7 @@ fn extract_raw_from_import(
     let mut imported_names = Vec::new();
     let mut cursor = def.walk();
     for child in def.children(&mut cursor) {
-        let is_module = module_name_node.map_or(false, |mn| child.id() == mn.id());
+        let is_module = module_name_node.is_some_and(|mn| child.id() == mn.id());
         if is_module {
             continue;
         }

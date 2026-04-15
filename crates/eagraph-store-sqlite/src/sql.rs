@@ -5,10 +5,8 @@ pub const UPSERT_EDGE: &str = include_str!("../sql/queries/upsert_edge.sql");
 pub const SEARCH_SYMBOLS: &str = include_str!("../sql/queries/search_symbols.sql");
 pub const SEARCH_SYMBOLS_WITH_KIND: &str =
     include_str!("../sql/queries/search_symbols_with_kind.sql");
-pub const GET_NEIGHBORS_OUTGOING: &str =
-    include_str!("../sql/queries/get_neighbors_outgoing.sql");
-pub const GET_NEIGHBORS_INCOMING: &str =
-    include_str!("../sql/queries/get_neighbors_incoming.sql");
+pub const GET_NEIGHBORS_OUTGOING: &str = include_str!("../sql/queries/get_neighbors_outgoing.sql");
+pub const GET_NEIGHBORS_INCOMING: &str = include_str!("../sql/queries/get_neighbors_incoming.sql");
 pub const GET_NEIGHBORS_BOTH: &str = include_str!("../sql/queries/get_neighbors_both.sql");
 pub const GET_SHORTEST_PATH: &str = include_str!("../sql/queries/get_shortest_path.sql");
 pub const UPSERT_ANNOTATION: &str = include_str!("../sql/queries/upsert_annotation.sql");

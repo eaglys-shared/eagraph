@@ -80,24 +80,13 @@ fn default_branch_ttl() -> String {
     "30d".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EmbeddingsConfig {
     #[serde(default)]
     pub enabled: bool,
     pub store: Option<String>,
     pub model: Option<String>,
     pub model_path: Option<String>,
-}
-
-impl Default for EmbeddingsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            store: None,
-            model: None,
-            model_path: None,
-        }
-    }
 }
 
 /// A repo entry from [[repos]] in config.toml.

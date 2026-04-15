@@ -21,17 +21,8 @@ pub trait GraphStore: Send + Sync {
 
     // --- Graph traversal (intra-repo, within this branch DB) ---
 
-    fn get_neighbors(
-        &self,
-        id: &SymbolId,
-        direction: Direction,
-        depth: u32,
-    ) -> Result<SubGraph>;
-    fn get_shortest_path(
-        &self,
-        from: &SymbolId,
-        to: &SymbolId,
-    ) -> Result<Option<Vec<SymbolId>>>;
+    fn get_neighbors(&self, id: &SymbolId, direction: Direction, depth: u32) -> Result<SubGraph>;
+    fn get_shortest_path(&self, from: &SymbolId, to: &SymbolId) -> Result<Option<Vec<SymbolId>>>;
 
     // --- Annotations ---
 
@@ -70,11 +61,7 @@ pub trait CrossRefStore: Send + Sync {
     fn upsert_unresolved(&self, refs: &[UnresolvedCrossRef]) -> Result<()>;
     fn delete_unresolved_for(&self, repo: &str, branch: &str) -> Result<()>;
     fn get_unresolved_targeting(&self, package: &str) -> Result<Vec<UnresolvedCrossRef>>;
-    fn get_unresolved_from(
-        &self,
-        repo: &str,
-        branch: &str,
-    ) -> Result<Vec<UnresolvedCrossRef>>;
+    fn get_unresolved_from(&self, repo: &str, branch: &str) -> Result<Vec<UnresolvedCrossRef>>;
     fn delete_unresolved(&self, ids: &[UnresolvedCrossRefId]) -> Result<()>;
 }
 
@@ -89,9 +76,5 @@ pub trait EmbeddingStore: Send + Sync {
 pub trait Enricher: Send + Sync {
     fn name(&self) -> &str;
     fn enrich_symbols(&self, symbols: &[Symbol]) -> Result<Vec<Annotation>>;
-    fn enrich_file(
-        &self,
-        repo: &RepoRecord,
-        file_path: &Path,
-    ) -> Result<Vec<Annotation>>;
+    fn enrich_file(&self, repo: &RepoRecord, file_path: &Path) -> Result<Vec<Annotation>>;
 }

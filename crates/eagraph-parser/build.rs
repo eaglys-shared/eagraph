@@ -10,7 +10,10 @@ fn main() {
     // Paths relative to workspace root
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
-    let grammars_src = workspace_root.join("tests").join("fixtures").join("grammars-src");
+    let grammars_src = workspace_root
+        .join("tests")
+        .join("fixtures")
+        .join("grammars-src");
     let grammars_config = workspace_root.join("grammars");
 
     // Build each grammar whose C sources exist in tests/fixtures/grammars-src/
@@ -29,8 +32,14 @@ fn main() {
         );
 
         println!("cargo:rerun-if-changed={}", python_src.display());
-        println!("cargo:rerun-if-changed={}", grammars_config.join("python.scm").display());
-        println!("cargo:rerun-if-changed={}", grammars_config.join("python.toml").display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            grammars_config.join("python.scm").display()
+        );
+        println!(
+            "cargo:rerun-if-changed={}",
+            grammars_config.join("python.toml").display()
+        );
     } else {
         println!(
             "cargo:warning=Grammar sources not found at {}. Tests will skip dynamic loading.",

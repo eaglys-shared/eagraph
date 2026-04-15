@@ -52,16 +52,18 @@ impl fmt::Display for SymbolKind {
     }
 }
 
-impl SymbolKind {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for SymbolKind {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
-            "function" => Some(Self::Function),
-            "class" => Some(Self::Class),
-            "method" => Some(Self::Method),
-            "module" => Some(Self::Module),
-            "variable" => Some(Self::Variable),
-            "type" => Some(Self::Type),
-            _ => None,
+            "function" => Ok(Self::Function),
+            "class" => Ok(Self::Class),
+            "method" => Ok(Self::Method),
+            "module" => Ok(Self::Module),
+            "variable" => Ok(Self::Variable),
+            "type" => Ok(Self::Type),
+            other => Err(format!("unknown SymbolKind: {:?}", other)),
         }
     }
 }
@@ -88,15 +90,17 @@ impl fmt::Display for EdgeKind {
     }
 }
 
-impl EdgeKind {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for EdgeKind {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
-            "calls" => Some(Self::Calls),
-            "imports" => Some(Self::Imports),
-            "inherits" => Some(Self::Inherits),
-            "references" => Some(Self::References),
-            "typeof" => Some(Self::TypeOf),
-            _ => None,
+            "calls" => Ok(Self::Calls),
+            "imports" => Ok(Self::Imports),
+            "inherits" => Ok(Self::Inherits),
+            "references" => Ok(Self::References),
+            "typeof" => Ok(Self::TypeOf),
+            other => Err(format!("unknown EdgeKind: {:?}", other)),
         }
     }
 }
@@ -147,6 +151,16 @@ pub struct RawEdge {
     pub kind: EdgeKind,
 }
 
+/// Convert a `&Path` to `&str`, returning an error if the path contains non-UTF-8 bytes.
+///
+/// eagraph assumes all repo paths are UTF-8. This helper makes the assumption explicit
+/// — it bails with a clear error instead of silently substituting an empty string.
+pub fn path_to_str(p: &std::path::Path) -> crate::Result<&str> {
+    p.to_str().ok_or_else(|| {
+        crate::EagraphError::Other(format!("path is not valid UTF-8: {}", p.display()))
+    })
+}
+
 impl RawEdge {
     /// Resolve raw edges into real edges.
     /// `ext_to_lang` maps file extensions to language names (e.g. "py" → "python", "ts" → "typescript").
@@ -163,8 +177,12 @@ impl RawEdge {
         let mut name_lang_to_id: HashMap<(&str, &str), &SymbolId> =
             HashMap::with_capacity(symbols.len());
         for s in symbols {
-            let Some(ext) = s.file_path.extension().and_then(|e| e.to_str()) else { continue };
-            let Some(lang) = ext_to_lang.get(ext) else { continue };
+            let Some(ext) = s.file_path.extension().and_then(|e| e.to_str()) else {
+                continue;
+            };
+            let Some(lang) = ext_to_lang.get(ext) else {
+                continue;
+            };
             id_to_lang.insert(s.id.0.as_str(), lang.as_str());
             name_lang_to_id.insert((s.name.as_str(), lang.as_str()), &s.id);
         }

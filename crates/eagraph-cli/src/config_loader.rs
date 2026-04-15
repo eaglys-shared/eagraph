@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
@@ -42,7 +42,7 @@ pub fn resolve_grammars_dir(cli_override: Option<&str>) -> Result<PathBuf> {
     Ok(base.join("eagraph").join("grammars"))
 }
 
-pub fn load_config(path: &PathBuf) -> Result<Config> {
+pub fn load_config(path: &Path) -> Result<Config> {
     let content =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let config: Config =
@@ -51,7 +51,7 @@ pub fn load_config(path: &PathBuf) -> Result<Config> {
 }
 
 /// Build the DB path for a given org/repo/branch.
-pub fn db_path(data_dir: &PathBuf, org: &str, repo: &str, branch: &str) -> PathBuf {
+pub fn db_path(data_dir: &Path, org: &str, repo: &str, branch: &str) -> PathBuf {
     let sanitized_branch = branch.replace('/', "--");
     data_dir
         .join(org)
@@ -59,8 +59,21 @@ pub fn db_path(data_dir: &PathBuf, org: &str, repo: &str, branch: &str) -> PathB
         .join(format!("{}.db", sanitized_branch))
 }
 
+/// Detect the current branch for a repo and build the DB path for it.
+/// Returns `(branch, db_path)`. Propagates branch-detection errors.
+pub fn resolve_db_path(
+    data_dir: &Path,
+    org: &str,
+    repo_name: &str,
+    repo_root: &Path,
+) -> Result<(String, PathBuf)> {
+    let branch = detect_branch(repo_root)?;
+    let path = db_path(data_dir, org, repo_name, &branch);
+    Ok((branch, path))
+}
+
 /// Detect the current git branch for a repo root.
-pub fn detect_branch(repo_root: &PathBuf) -> Result<String> {
+pub fn detect_branch(repo_root: &Path) -> Result<String> {
     let output = std::process::Command::new("git")
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .current_dir(repo_root)

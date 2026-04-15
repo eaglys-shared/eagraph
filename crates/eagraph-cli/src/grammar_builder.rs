@@ -25,8 +25,8 @@ fn load_registry() -> Result<Registry> {
     let registry_path = workspace_root().join("grammars").join("registry.toml");
     let content = std::fs::read_to_string(&registry_path)
         .with_context(|| format!("reading {}", registry_path.display()))?;
-    let registry: Registry = toml::from_str(&content)
-        .with_context(|| format!("parsing {}", registry_path.display()))?;
+    let registry: Registry =
+        toml::from_str(&content).with_context(|| format!("parsing {}", registry_path.display()))?;
     Ok(registry)
 }
 
@@ -69,14 +69,18 @@ pub fn cmd_grammars_list(grammars_dir: &Path) -> Result<()> {
     let bundled = bundled_grammars_dir();
 
     println!("Known grammars:");
-    for (name, _entry) in &registry {
+    for name in registry.keys() {
         let installed = is_installed(grammars_dir, name);
 
         // Read extensions from the bundled .toml
         let extensions = read_extensions(&bundled, name);
         let ext_str = extensions.join(", ");
 
-        let status = if installed { "installed" } else { "not installed" };
+        let status = if installed {
+            "installed"
+        } else {
+            "not installed"
+        };
         println!("  {:<14} extensions: {:<24} {}", name, ext_str, status);
     }
     Ok(())
@@ -92,16 +96,29 @@ fn is_installed(grammars_dir: &Path, name: &str) -> bool {
 /// Collect all supported file extensions from installed grammar .toml files.
 pub fn all_supported_extensions(grammars_dir: &Path) -> std::collections::HashSet<String> {
     let mut exts = std::collections::HashSet::new();
-    if let Ok(entries) = std::fs::read_dir(grammars_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("toml")
-                && path.file_stem().and_then(|s| s.to_str()) != Some("registry")
-            {
-                let name = path.file_stem().unwrap().to_str().unwrap_or("");
-                for ext in read_extensions(grammars_dir, name) {
-                    exts.insert(ext);
-                }
+    let entries = match std::fs::read_dir(grammars_dir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return exts,
+        Err(e) => {
+            eprintln!(
+                "warning: cannot read grammars dir {}: {}",
+                grammars_dir.display(),
+                e
+            );
+            return exts;
+        }
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("toml")
+            && path.file_stem().and_then(|s| s.to_str()) != Some("registry")
+        {
+            let Some(name) = path.file_stem().and_then(|s| s.to_str()) else {
+                eprintln!("warning: non-UTF-8 grammar filename: {}", path.display());
+                continue;
+            };
+            for ext in read_extensions(grammars_dir, name) {
+                exts.insert(ext);
             }
         }
     }
@@ -112,17 +129,28 @@ pub fn all_supported_extensions(grammars_dir: &Path) -> std::collections::HashSe
 pub fn bundled_ext_to_lang() -> std::collections::HashMap<String, String> {
     let bundled = workspace_root().join("grammars");
     let mut map = std::collections::HashMap::new();
-    if let Ok(entries) = std::fs::read_dir(&bundled) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("toml") { continue; }
-            let stem = match path.file_stem().and_then(|s| s.to_str()) {
-                Some(s) if s != "registry" => s.to_string(),
-                _ => continue,
-            };
-            for ext in read_extensions(&bundled, &stem) {
-                map.insert(ext, stem.clone());
-            }
+    let entries = match std::fs::read_dir(&bundled) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!(
+                "warning: cannot read bundled grammars dir {}: {}",
+                bundled.display(),
+                e
+            );
+            return map;
+        }
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("toml") {
+            continue;
+        }
+        let stem = match path.file_stem().and_then(|s| s.to_str()) {
+            Some(s) if s != "registry" => s.to_string(),
+            _ => continue,
+        };
+        for ext in read_extensions(&bundled, &stem) {
+            map.insert(ext, stem.clone());
         }
     }
     map
@@ -130,17 +158,26 @@ pub fn bundled_ext_to_lang() -> std::collections::HashMap<String, String> {
 
 fn read_extensions(bundled_dir: &Path, name: &str) -> Vec<String> {
     let toml_path = bundled_dir.join(format!("{}.toml", name));
-    if let Ok(content) = std::fs::read_to_string(&toml_path) {
-        #[derive(Deserialize)]
-        struct GrammarToml {
-            #[serde(default)]
-            extensions: Vec<String>,
+    let content = match std::fs::read_to_string(&toml_path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return vec![],
+        Err(e) => {
+            eprintln!("warning: cannot read {}: {}", toml_path.display(), e);
+            return vec![];
         }
-        if let Ok(parsed) = toml::from_str::<GrammarToml>(&content) {
-            return parsed.extensions;
+    };
+    #[derive(Deserialize)]
+    struct GrammarToml {
+        #[serde(default)]
+        extensions: Vec<String>,
+    }
+    match toml::from_str::<GrammarToml>(&content) {
+        Ok(parsed) => parsed.extensions,
+        Err(e) => {
+            eprintln!("warning: parse {}: {}", toml_path.display(), e);
+            vec![]
         }
     }
-    vec![]
 }
 
 fn build_grammar(name: &str, entry: &RegistryEntry, grammars_dir: &Path) -> Result<()> {
@@ -201,7 +238,11 @@ fn build_grammar(name: &str, entry: &RegistryEntry, grammars_dir: &Path) -> Resu
 
     for src in &sources {
         let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("c");
-        let cc = if ext == "cc" || ext == "cpp" { "c++" } else { "cc" };
+        let cc = if ext == "cc" || ext == "cpp" {
+            "c++"
+        } else {
+            "cc"
+        };
         let stem = src.file_stem().context("source file has no stem")?;
         let obj = obj_dir.join(stem).with_extension("o");
         let status = Command::new(cc)
@@ -246,10 +287,7 @@ fn build_grammar(name: &str, entry: &RegistryEntry, grammars_dir: &Path) -> Resu
         if src.exists() {
             std::fs::copy(&src, &dst)?;
         } else {
-            bail!(
-                "missing {}.{} in {}",
-                name, ext, bundled.display()
-            );
+            bail!("missing {}.{} in {}", name, ext, bundled.display());
         }
     }
 
@@ -265,7 +303,7 @@ pub fn cmd_grammars_check(config: &eagraph_core::Config, grammars_dir: &Path) ->
 
     // Build extension → language name map from registry
     let mut ext_to_lang: BTreeMap<String, String> = BTreeMap::new();
-    for (name, _) in &registry {
+    for name in registry.keys() {
         for ext in read_extensions(&bundled, name) {
             ext_to_lang.insert(ext, name.clone());
         }
@@ -312,7 +350,10 @@ pub fn cmd_grammars_check(config: &eagraph_core::Config, grammars_dir: &Path) ->
     if !covered.is_empty() {
         println!("Covered (grammar installed):");
         for (lang, exts) in &covered {
-            let detail: Vec<String> = exts.iter().map(|(e, c)| format!(".{} ({})", e, c)).collect();
+            let detail: Vec<String> = exts
+                .iter()
+                .map(|(e, c)| format!(".{} ({})", e, c))
+                .collect();
             println!("  {:<14} {}", lang, detail.join(", "));
         }
         println!();
@@ -321,7 +362,10 @@ pub fn cmd_grammars_check(config: &eagraph_core::Config, grammars_dir: &Path) ->
     if !need_install.is_empty() {
         println!("Missing (grammar available but not installed):");
         for (lang, exts) in &need_install {
-            let detail: Vec<String> = exts.iter().map(|(e, c)| format!(".{} ({})", e, c)).collect();
+            let detail: Vec<String> = exts
+                .iter()
+                .map(|(e, c)| format!(".{} ({})", e, c))
+                .collect();
             println!("  {:<14} {}", lang, detail.join(", "));
         }
         println!();

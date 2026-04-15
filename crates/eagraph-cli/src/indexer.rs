@@ -35,9 +35,8 @@ pub fn index_repo(
     registry: &eagraph_parser::LanguageRegistry,
     force: bool,
 ) -> Result<IndexResult> {
-    let branch = config_loader::detect_branch(&config.root)
-        .unwrap_or_else(|_| "main".to_string());
-    let db_path = config_loader::db_path(&data_dir.to_path_buf(), org, &config.name, &branch);
+    let (_branch, db_path) =
+        config_loader::resolve_db_path(data_dir, org, &config.name, &config.root)?;
 
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)
@@ -49,8 +48,7 @@ pub fn index_repo(
             .with_context(|| format!("removing {}", db_path.display()))?;
     }
 
-    let store = SqliteGraphStore::open(&db_path)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let store = SqliteGraphStore::open(&db_path)?;
 
     let files = collect_files(&config.root, &config.include, &config.exclude)?;
 
@@ -97,26 +95,21 @@ pub fn index_repo(
         .as_secs();
 
     let mut total_symbols = 0usize;
-    let total_edges;
 
-    store.begin_transaction().map_err(|e| anyhow::anyhow!("{}", e))?;
+    store.begin_transaction()?;
 
     // Pass 1: delete old data + insert all symbols and file records
     for p in &parsed {
-        let _ = store.delete_file_data(&p.rel_path);
+        store.delete_file_data(&p.rel_path)?;
 
         if !p.symbols.is_empty() {
-            store
-                .upsert_symbols(&p.symbols)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            store.upsert_symbols(&p.symbols)?;
         }
-        store
-            .upsert_file_record(&FileRecord {
-                path: p.rel_path.clone(),
-                content_hash: p.content_hash.clone(),
-                last_indexed: now,
-            })
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        store.upsert_file_record(&FileRecord {
+            path: p.rel_path.clone(),
+            content_hash: p.content_hash.clone(),
+            last_indexed: now,
+        })?;
 
         total_symbols += p.symbols.len();
     }
@@ -126,15 +119,13 @@ pub fn index_repo(
     let all_raw: Vec<RawEdge> = parsed.iter().flat_map(|p| p.raw_edges.clone()).collect();
     let ext_to_lang = registry.ext_to_lang();
     let all_resolved = RawEdge::resolve(&all_raw, &all_symbols, &ext_to_lang);
-    total_edges = all_resolved.len();
+    let total_edges = all_resolved.len();
 
     if !all_resolved.is_empty() {
-        store
-            .upsert_edges(&all_resolved)
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        store.upsert_edges(&all_resolved)?;
     }
 
-    store.commit_transaction().map_err(|e| anyhow::anyhow!("{}", e))?;
+    store.commit_transaction()?;
 
     Ok(IndexResult {
         files_indexed: parsed.len(),
@@ -163,8 +154,17 @@ fn parse_one(
     let hash = content_hash(&source);
 
     if !force {
-        if let Ok(Some(existing)) = store.get_file_record(&rel_path.to_path_buf()) {
-            if existing.content_hash == hash {
+        match store.get_file_record(rel_path) {
+            Ok(Some(existing)) if existing.content_hash == hash => return None,
+            Ok(_) => {}
+            Err(e) => {
+                pb.suspend(|| {
+                    eprintln!(
+                        "  skip {}: failed to read file record: {}",
+                        rel_path.display(),
+                        e
+                    )
+                });
                 return None;
             }
         }
@@ -194,11 +194,7 @@ fn content_hash(content: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn collect_files(
-    root: &Path,
-    include: &[String],
-    exclude: &[String],
-) -> Result<Vec<PathBuf>> {
+fn collect_files(root: &Path, include: &[String], exclude: &[String]) -> Result<Vec<PathBuf>> {
     let mut builder = ignore::WalkBuilder::new(root);
     builder
         .hidden(true)
@@ -224,7 +220,7 @@ fn collect_files(
     let mut files = Vec::new();
     for entry in builder.build() {
         let entry = entry.with_context(|| "walking directory")?;
-        if entry.file_type().map_or(false, |ft| ft.is_file()) {
+        if entry.file_type().is_some_and(|ft| ft.is_file()) {
             files.push(entry.into_path());
         }
     }
@@ -240,12 +236,15 @@ pub fn auto_refresh(
     repo_config: &RepoConfig,
     registry: &eagraph_parser::LanguageRegistry,
 ) -> Result<()> {
-    let all_files = collect_files(&repo_config.root, &repo_config.include, &repo_config.exclude)?;
+    let all_files = collect_files(
+        &repo_config.root,
+        &repo_config.include,
+        &repo_config.exclude,
+    )?;
 
     // Get existing file records from DB
     let existing: std::collections::HashMap<PathBuf, u64> = store
-        .get_all_file_records()
-        .map_err(|e| anyhow::anyhow!("{}", e))?
+        .get_all_file_records()?
         .into_iter()
         .map(|r| (r.path, r.last_indexed))
         .collect();
@@ -263,7 +262,9 @@ pub fn auto_refresh(
         }
 
         let mtime = match std::fs::metadata(file_path) {
-            Ok(m) => m.modified().ok()
+            Ok(m) => m
+                .modified()
+                .ok()
                 .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                 .map(|d| d.as_secs())
                 .unwrap_or(0),
@@ -272,16 +273,17 @@ pub fn auto_refresh(
 
         match existing.get(rel_path) {
             Some(last_indexed) if mtime <= *last_indexed => {} // up to date
-            _ => stale_files.push(file_path.clone()), // stale or new
+            _ => stale_files.push(file_path.clone()),          // stale or new
         }
     }
 
     // Check for deleted files (in DB but not on disk)
-    let disk_files: std::collections::HashSet<&Path> = all_files.iter().map(|p| p.as_path()).collect();
-    for (db_path, _) in &existing {
+    let disk_files: std::collections::HashSet<&Path> =
+        all_files.iter().map(|p| p.as_path()).collect();
+    for db_path in existing.keys() {
         let abs = repo_config.root.join(db_path);
         if !disk_files.contains(abs.as_path()) {
-            let _ = store.delete_file_data(db_path);
+            store.delete_file_data(db_path)?;
         }
     }
 
@@ -291,15 +293,29 @@ pub fn auto_refresh(
 
     let count = stale_files.len();
 
-    // Parse stale files
+    // Parse stale files. Log and skip files that fail to read or parse.
     let parsed: Vec<ParsedFile> = stale_files
         .iter()
         .filter_map(|file_path| {
-            let rel_path = file_path.strip_prefix(&repo_config.root).unwrap_or(file_path);
-            let source = std::fs::read_to_string(file_path).ok()?;
+            let rel_path = file_path
+                .strip_prefix(&repo_config.root)
+                .unwrap_or(file_path);
+            let source = match std::fs::read_to_string(file_path) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("  [auto] skip {}: {}", rel_path.display(), e);
+                    return None;
+                }
+            };
             let hash = content_hash(&source);
             let extractor = registry.extractor_for(file_path)?;
-            let (symbols, raw_edges) = extractor.extract(file_path, &source).ok()?;
+            let (symbols, raw_edges) = match extractor.extract(file_path, &source) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("  [auto] skip {}: {}", rel_path.display(), e);
+                    return None;
+                }
+            };
             Some(ParsedFile {
                 rel_path: rel_path.to_path_buf(),
                 content_hash: hash,
@@ -318,37 +334,40 @@ pub fn auto_refresh(
         .expect("system clock before unix epoch")
         .as_secs();
 
-    store.begin_transaction().map_err(|e| anyhow::anyhow!("{}", e))?;
+    store.begin_transaction()?;
 
     // Delete old data + insert symbols
     for p in &parsed {
-        let _ = store.delete_file_data(&p.rel_path);
+        store.delete_file_data(&p.rel_path)?;
         if !p.symbols.is_empty() {
-            store.upsert_symbols(&p.symbols).map_err(|e| anyhow::anyhow!("{}", e))?;
+            store.upsert_symbols(&p.symbols)?;
         }
         store.upsert_file_record(&FileRecord {
             path: p.rel_path.clone(),
             content_hash: p.content_hash.clone(),
             last_indexed: now,
-        }).map_err(|e| anyhow::anyhow!("{}", e))?;
+        })?;
     }
 
     // Resolve edges against full symbol table
-    let all_symbols = store.get_all_symbols().map_err(|e| anyhow::anyhow!("{}", e))?;
-    let all_raw: Vec<eagraph_core::RawEdge> = parsed.iter().flat_map(|p| p.raw_edges.clone()).collect();
+    let all_symbols = store.get_all_symbols()?;
+    let all_raw: Vec<eagraph_core::RawEdge> =
+        parsed.iter().flat_map(|p| p.raw_edges.clone()).collect();
     let ext_to_lang = registry.ext_to_lang();
     let resolved = eagraph_core::RawEdge::resolve(&all_raw, &all_symbols, &ext_to_lang);
 
     if !resolved.is_empty() {
-        store.upsert_edges(&resolved).map_err(|e| anyhow::anyhow!("{}", e))?;
+        store.upsert_edges(&resolved)?;
     }
 
-    store.commit_transaction().map_err(|e| anyhow::anyhow!("{}", e))?;
+    store.commit_transaction()?;
 
     let sym_count: usize = parsed.iter().map(|p| p.symbols.len()).sum();
     eprintln!(
         "  [auto] {} files refreshed, {} symbols, {} edges",
-        count, sym_count, resolved.len()
+        count,
+        sym_count,
+        resolved.len()
     );
 
     Ok(())

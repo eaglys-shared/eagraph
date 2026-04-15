@@ -51,8 +51,9 @@ impl LanguageRegistry {
         }
 
         // Find all .toml config files — each one defines a language
-        let entries = std::fs::read_dir(grammars_dir)
-            .map_err(|e| EagraphError::Config(format!("reading {}: {}", grammars_dir.display(), e)))?;
+        let entries = std::fs::read_dir(grammars_dir).map_err(|e| {
+            EagraphError::Config(format!("reading {}: {}", grammars_dir.display(), e))
+        })?;
 
         for entry in entries {
             let entry = entry.map_err(|e| EagraphError::Config(e.to_string()))?;
@@ -61,10 +62,16 @@ impl LanguageRegistry {
                 continue;
             }
 
-            let lang_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
-            if lang_name.is_empty() {
-                continue;
-            }
+            let lang_name = match path.file_stem().and_then(|s| s.to_str()) {
+                Some(name) if !name.is_empty() => name.to_string(),
+                _ => {
+                    eprintln!(
+                        "warning: skipping non-UTF-8 or empty grammar filename: {}",
+                        path.display()
+                    );
+                    continue;
+                }
+            };
 
             match load_language(grammars_dir, &lang_name) {
                 Ok((config, extensions)) => {
@@ -139,8 +146,8 @@ fn load_language(
 
     // Load .scm queries
     let scm_path = dir.join(format!("{}.scm", name));
-    let queries = std::fs::read_to_string(&scm_path)
-        .map_err(|e| format!("{}: {}", scm_path.display(), e))?;
+    let queries =
+        std::fs::read_to_string(&scm_path).map_err(|e| format!("{}: {}", scm_path.display(), e))?;
 
     // Load grammar shared library
     let ts_language = grammar::load_grammar(dir, name)?;

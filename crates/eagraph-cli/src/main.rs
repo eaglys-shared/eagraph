@@ -137,7 +137,9 @@ fn main() -> Result<()> {
     // These grammars subcommands don't need config.toml
     if let Command::Grammars { action } = &cli.command {
         match action {
-            GrammarsAction::Add { names } => return grammar_builder::cmd_grammars_add(names, &grammars_dir),
+            GrammarsAction::Add { names } => {
+                return grammar_builder::cmd_grammars_add(names, &grammars_dir)
+            }
             GrammarsAction::List => return grammar_builder::cmd_grammars_list(&grammars_dir),
             GrammarsAction::Check => {} // needs config, fall through
         }
@@ -149,7 +151,9 @@ fn main() -> Result<()> {
     match &cli.command {
         Command::Config => return cmd_config(&config_path, &grammars_dir),
         Command::Init { org } => return cmd_init(&config_path, org),
-        Command::Add { path, name } => return cmd_add(&config_path, path, name.as_deref(), &grammars_dir),
+        Command::Add { path, name } => {
+            return cmd_add(&config_path, path, name.as_deref(), &grammars_dir)
+        }
         _ => {}
     }
 
@@ -161,27 +165,51 @@ fn main() -> Result<()> {
     }
     let config = config_loader::load_config(&config_path)?;
     let data_dir = config_loader::resolve_data_dir(None)?;
-    let registry = eagraph_parser::LanguageRegistry::from_dir(&grammars_dir)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let registry = eagraph_parser::LanguageRegistry::from_dir(&grammars_dir)?;
 
     let json = cli.json;
     match cli.command {
-        Command::Index { repo, all, force } => cmd_index(&config, &data_dir, &registry, repo.as_deref(), all, force),
-        Command::Status => cmd_status(&config, &data_dir, &registry, json),
-        Command::Query { name, repo } => cmd_query(&config, &data_dir, &registry, &name, repo.as_deref(), json),
-        Command::Context { name, repo, depth } => { let r = resolve_repo_name(&config, repo.as_deref())?; cmd_context(&config, &data_dir, &registry, &name, &r, depth, json) },
-        Command::Dependents { file, repo, depth } => { let r = resolve_repo_name(&config, repo.as_deref())?; cmd_dependents(&config, &data_dir, &registry, &file, &r, depth, json) },
-        Command::Symbols { file, repo } => { let r = resolve_repo_name(&config, repo.as_deref())?; cmd_symbols(&config, &data_dir, &registry, &file, &r, json) },
-        Command::Chain { from, to, repo } => { let r = resolve_repo_name(&config, repo.as_deref())?; cmd_chain(&config, &data_dir, &registry, &from, &to, &r, json) },
-        Command::Viz { port } => cmd_viz(&config, &data_dir, &registry, port),
-        Command::Grammars { action: GrammarsAction::Check } => {
-            grammar_builder::cmd_grammars_check(&config, &grammars_dir)
+        Command::Index { repo, all, force } => {
+            cmd_index(&config, &data_dir, &registry, repo.as_deref(), all, force)
         }
-        Command::Config | Command::Init { .. } | Command::Add { .. } | Command::Grammars { .. } => unreachable!(),
+        Command::Status => cmd_status(&config, &data_dir, &registry, json),
+        Command::Query { name, repo } => {
+            cmd_query(&config, &data_dir, &registry, &name, repo.as_deref(), json)
+        }
+        Command::Context { name, repo, depth } => {
+            let r = resolve_repo_name(&config, repo.as_deref())?;
+            cmd_context(&config, &data_dir, &registry, &name, &r, depth, json)
+        }
+        Command::Dependents { file, repo, depth } => {
+            let r = resolve_repo_name(&config, repo.as_deref())?;
+            cmd_dependents(&config, &data_dir, &registry, &file, &r, depth, json)
+        }
+        Command::Symbols { file, repo } => {
+            let r = resolve_repo_name(&config, repo.as_deref())?;
+            cmd_symbols(&config, &data_dir, &registry, &file, &r, json)
+        }
+        Command::Chain { from, to, repo } => {
+            let r = resolve_repo_name(&config, repo.as_deref())?;
+            cmd_chain(&config, &data_dir, &registry, &from, &to, &r, json)
+        }
+        Command::Viz { port } => cmd_viz(&config, &data_dir, &registry, port),
+        Command::Grammars {
+            action: GrammarsAction::Check,
+        } => grammar_builder::cmd_grammars_check(&config, &grammars_dir),
+        Command::Config | Command::Init { .. } | Command::Add { .. } | Command::Grammars { .. } => {
+            unreachable!()
+        }
     }
 }
 
-fn cmd_index(config: &eagraph_core::Config, data_dir: &PathBuf, registry: &eagraph_parser::LanguageRegistry, repo_filter: Option<&str>, all: bool, force: bool) -> Result<()> {
+fn cmd_index(
+    config: &eagraph_core::Config,
+    data_dir: &Path,
+    registry: &eagraph_parser::LanguageRegistry,
+    repo_filter: Option<&str>,
+    all: bool,
+    force: bool,
+) -> Result<()> {
     if repo_filter.is_none() && !all {
         eprintln!("Specify a repo name or use --all:");
         eprintln!();
@@ -207,7 +235,7 @@ fn cmd_index(config: &eagraph_core::Config, data_dir: &PathBuf, registry: &eagra
     let repos: Vec<_> = config
         .repos
         .iter()
-        .filter(|r| repo_filter.map_or(true, |f| r.name == f))
+        .filter(|r| repo_filter.is_none_or(|f| r.name == f))
         .collect();
 
     if repos.is_empty() {
@@ -220,7 +248,13 @@ fn cmd_index(config: &eagraph_core::Config, data_dir: &PathBuf, registry: &eagra
 
     for repo_config in &repos {
         println!("Indexing {}...", repo_config.name);
-        match indexer::index_repo(repo_config, data_dir, &config.organization.name, &registry, force) {
+        match indexer::index_repo(
+            repo_config,
+            data_dir,
+            &config.organization.name,
+            registry,
+            force,
+        ) {
             Ok(result) => {
                 println!(
                     "  {} files indexed, {} skipped, {} symbols, {} edges",
@@ -238,20 +272,52 @@ fn cmd_index(config: &eagraph_core::Config, data_dir: &PathBuf, registry: &eagra
     Ok(())
 }
 
-fn cmd_status(config: &eagraph_core::Config, data_dir: &PathBuf, registry: &eagraph_parser::LanguageRegistry, json: bool) -> Result<()> {
+fn cmd_status(
+    config: &eagraph_core::Config,
+    data_dir: &Path,
+    registry: &eagraph_parser::LanguageRegistry,
+    json: bool,
+) -> Result<()> {
     let mut items = Vec::new();
     for repo_config in &config.repos {
-        let branch = config_loader::detect_branch(&repo_config.root)
-            .unwrap_or_else(|_| "unknown".to_string());
-        let db_path = config_loader::db_path(data_dir, &config.organization.name, &repo_config.name, &branch);
+        let (branch, db_path) = match config_loader::resolve_db_path(
+            data_dir,
+            &config.organization.name,
+            &repo_config.name,
+            &repo_config.root,
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!(
+                    "warning: skipping {}: branch detection failed: {}",
+                    repo_config.name, e
+                );
+                continue;
+            }
+        };
 
         let symbol_count = if db_path.exists() {
-            SqliteGraphStore::open(&db_path)
-                .ok()
-                .and_then(|store| {
-                    let _ = indexer::auto_refresh(&store, repo_config, registry);
-                    store.search_symbols("", None).ok().map(|s| s.len())
-                })
+            match SqliteGraphStore::open(&db_path) {
+                Ok(store) => {
+                    if let Err(e) = indexer::auto_refresh(&store, repo_config, registry) {
+                        eprintln!("warning: {}: auto-refresh failed: {}", repo_config.name, e);
+                    }
+                    match store.search_symbols("", None) {
+                        Ok(s) => Some(s.len()),
+                        Err(e) => {
+                            eprintln!(
+                                "warning: {}: search_symbols failed: {}",
+                                repo_config.name, e
+                            );
+                            None
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("warning: {}: failed to open DB: {}", repo_config.name, e);
+                    None
+                }
+            }
         } else {
             None
         };
@@ -279,7 +345,7 @@ fn cmd_status(config: &eagraph_core::Config, data_dir: &PathBuf, registry: &eagr
 
 fn cmd_query(
     config: &eagraph_core::Config,
-    data_dir: &PathBuf,
+    data_dir: &Path,
     registry: &eagraph_parser::LanguageRegistry,
     name: &str,
     repo_filter: Option<&str>,
@@ -288,26 +354,27 @@ fn cmd_query(
     let repos: Vec<_> = config
         .repos
         .iter()
-        .filter(|r| repo_filter.map_or(true, |f| r.name == f))
+        .filter(|r| repo_filter.is_none_or(|f| r.name == f))
         .collect();
 
     let mut all_results = Vec::new();
     for repo_config in &repos {
-        let branch = config_loader::detect_branch(&repo_config.root)
-            .unwrap_or_else(|_| "main".to_string());
-        let db_path = config_loader::db_path(data_dir, &config.organization.name, &repo_config.name, &branch);
+        let (_branch, db_path) = config_loader::resolve_db_path(
+            data_dir,
+            &config.organization.name,
+            &repo_config.name,
+            &repo_config.root,
+        )?;
 
         if !db_path.exists() {
             continue;
         }
 
-        let store = SqliteGraphStore::open(&db_path)
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        let store = SqliteGraphStore::open(&db_path)?;
 
         indexer::auto_refresh(&store, repo_config, registry)?;
 
-        let results = store.search_symbols(name, None)
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        let results = store.search_symbols(name, None)?;
 
         for sym in results {
             all_results.push((repo_config.name.clone(), sym));
@@ -315,13 +382,16 @@ fn cmd_query(
     }
 
     if json {
-        let items: Vec<serde_json::Value> = all_results.iter().map(|(repo, s)| {
-            serde_json::json!({
-                "name": s.name, "kind": s.kind.to_string(),
-                "file": s.file_path.to_str(), "lines": [s.line_start, s.line_end],
-                "repo": repo,
+        let items: Vec<serde_json::Value> = all_results
+            .iter()
+            .map(|(repo, s)| {
+                serde_json::json!({
+                    "name": s.name, "kind": s.kind.to_string(),
+                    "file": s.file_path.to_str(), "lines": [s.line_start, s.line_end],
+                    "repo": repo,
+                })
             })
-        }).collect();
+            .collect();
         println!("{}", serde_json::to_string(&items)?);
     } else {
         if all_results.is_empty() {
@@ -330,8 +400,12 @@ fn cmd_query(
         for (repo, sym) in &all_results {
             println!(
                 "  {} {} {}:{}–{} [{}]",
-                sym.kind, sym.name, sym.file_path.display(),
-                sym.line_start, sym.line_end, repo,
+                sym.kind,
+                sym.name,
+                sym.file_path.display(),
+                sym.line_start,
+                sym.line_end,
+                repo,
             );
         }
     }
@@ -365,7 +439,7 @@ fn resolve_repo_name(config: &eagraph_core::Config, explicit: Option<&str>) -> R
 
 fn open_repo_store(
     config: &eagraph_core::Config,
-    data_dir: &PathBuf,
+    data_dir: &Path,
     registry: &eagraph_parser::LanguageRegistry,
     repo_name: &str,
 ) -> Result<(eagraph_core::RepoConfig, SqliteGraphStore)> {
@@ -376,16 +450,22 @@ fn open_repo_store(
         .ok_or_else(|| anyhow::anyhow!("repo '{}' not found in config", repo_name))?
         .clone();
 
-    let branch = config_loader::detect_branch(&repo_config.root)
-        .unwrap_or_else(|_| "main".to_string());
-    let db_path = config_loader::db_path(data_dir, &config.organization.name, &repo_config.name, &branch);
+    let (_branch, db_path) = config_loader::resolve_db_path(
+        data_dir,
+        &config.organization.name,
+        &repo_config.name,
+        &repo_config.root,
+    )?;
 
     if !db_path.exists() {
-        anyhow::bail!("repo '{}' not indexed yet. Run: eagraph index {}", repo_name, repo_name);
+        anyhow::bail!(
+            "repo '{}' not indexed yet. Run: eagraph index {}",
+            repo_name,
+            repo_name
+        );
     }
 
-    let store = SqliteGraphStore::open(&db_path)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let store = SqliteGraphStore::open(&db_path)?;
 
     // Auto-refresh stale files before returning
     indexer::auto_refresh(&store, &repo_config, registry)?;
@@ -395,7 +475,7 @@ fn open_repo_store(
 
 fn cmd_context(
     config: &eagraph_core::Config,
-    data_dir: &PathBuf,
+    data_dir: &Path,
     registry: &eagraph_parser::LanguageRegistry,
     name: &str,
     repo_name: &str,
@@ -404,8 +484,7 @@ fn cmd_context(
 ) -> Result<()> {
     let (repo_config, store) = open_repo_store(config, data_dir, registry, repo_name)?;
 
-    let result = eagraph_retriever::get_context(&store, &repo_config.root, name, depth, 2)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let result = eagraph_retriever::get_context(&store, &repo_config.root, name, depth, 2)?;
 
     let ctx = match result {
         Some(c) => c,
@@ -431,7 +510,11 @@ fn cmd_context(
         println!("Edges:");
         let id_to_name: std::collections::HashMap<&eagraph_core::SymbolId, &str> =
             std::iter::once((&ctx.root.symbol.id, ctx.root.symbol.name.as_str()))
-                .chain(ctx.neighbors.iter().map(|e| (&e.symbol.id, e.symbol.name.as_str())))
+                .chain(
+                    ctx.neighbors
+                        .iter()
+                        .map(|e| (&e.symbol.id, e.symbol.name.as_str())),
+                )
                 .collect();
         for edge in &ctx.edges {
             let src = id_to_name.get(&edge.source).unwrap_or(&"?");
@@ -454,7 +537,7 @@ fn cmd_context(
 
 fn cmd_dependents(
     config: &eagraph_core::Config,
-    data_dir: &PathBuf,
+    data_dir: &Path,
     registry: &eagraph_parser::LanguageRegistry,
     file: &str,
     repo_name: &str,
@@ -464,11 +547,11 @@ fn cmd_dependents(
     let (repo_config, store) = open_repo_store(config, data_dir, registry, repo_name)?;
     let file_path = resolve_file_path(file, &repo_config.root);
 
-    let results = eagraph_retriever::get_dependents(&store, &repo_config.root, &file_path, depth, 2)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let results =
+        eagraph_retriever::get_dependents(&store, &repo_config.root, &file_path, depth, 2)?;
 
     if json {
-        let items: Vec<serde_json::Value> = results.iter().map(|ctx| context_to_json(ctx)).collect();
+        let items: Vec<serde_json::Value> = results.iter().map(context_to_json).collect();
         println!("{}", serde_json::to_string(&items)?);
         return Ok(());
     }
@@ -501,7 +584,7 @@ fn cmd_dependents(
 
 fn cmd_symbols(
     config: &eagraph_core::Config,
-    data_dir: &PathBuf,
+    data_dir: &Path,
     registry: &eagraph_parser::LanguageRegistry,
     file: &str,
     repo_name: &str,
@@ -510,21 +593,26 @@ fn cmd_symbols(
     let (repo_config, store) = open_repo_store(config, data_dir, registry, repo_name)?;
     let file_path = resolve_file_path(file, &repo_config.root);
 
-    let symbols = store.get_file_symbols(&file_path)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let symbols = store.get_file_symbols(&file_path)?;
 
     // Filter out module-scope symbols
-    let symbols: Vec<_> = symbols.into_iter().filter(|s| s.kind != eagraph_core::SymbolKind::Module).collect();
+    let symbols: Vec<_> = symbols
+        .into_iter()
+        .filter(|s| s.kind != eagraph_core::SymbolKind::Module)
+        .collect();
 
     if json {
-        let items: Vec<serde_json::Value> = symbols.iter().map(|s| {
-            serde_json::json!({
-                "name": s.name,
-                "kind": s.kind.to_string(),
-                "file": s.file_path.to_str(),
-                "lines": [s.line_start, s.line_end],
+        let items: Vec<serde_json::Value> = symbols
+            .iter()
+            .map(|s| {
+                serde_json::json!({
+                    "name": s.name,
+                    "kind": s.kind.to_string(),
+                    "file": s.file_path.to_str(),
+                    "lines": [s.line_start, s.line_end],
+                })
             })
-        }).collect();
+            .collect();
         println!("{}", serde_json::to_string(&items)?);
         return Ok(());
     }
@@ -535,7 +623,10 @@ fn cmd_symbols(
     }
 
     for s in &symbols {
-        println!("  {:<8} {:<40} {}–{}", s.kind, s.name, s.line_start, s.line_end);
+        println!(
+            "  {:<8} {:<40} {}–{}",
+            s.kind, s.name, s.line_start, s.line_end
+        );
     }
 
     Ok(())
@@ -543,7 +634,7 @@ fn cmd_symbols(
 
 fn cmd_chain(
     config: &eagraph_core::Config,
-    data_dir: &PathBuf,
+    data_dir: &Path,
     registry: &eagraph_parser::LanguageRegistry,
     from_name: &str,
     to_name: &str,
@@ -552,46 +643,56 @@ fn cmd_chain(
 ) -> Result<()> {
     let (_, store) = open_repo_store(config, data_dir, registry, repo_name)?;
 
-    let from_sym = store.search_symbols(from_name, None)
-        .map_err(|e| anyhow::anyhow!("{}", e))?
+    let from_sym = store
+        .search_symbols(from_name, None)?
         .into_iter()
         .find(|s| s.name == from_name);
-    let to_sym = store.search_symbols(to_name, None)
-        .map_err(|e| anyhow::anyhow!("{}", e))?
+    let to_sym = store
+        .search_symbols(to_name, None)?
         .into_iter()
         .find(|s| s.name == to_name);
 
     let (from, to) = match (from_sym, to_sym) {
         (Some(f), Some(t)) => (f, t),
         (None, _) => {
-            if json { println!("null"); } else { println!("Symbol '{}' not found", from_name); }
+            if json {
+                println!("null");
+            } else {
+                println!("Symbol '{}' not found", from_name);
+            }
             return Ok(());
         }
         (_, None) => {
-            if json { println!("null"); } else { println!("Symbol '{}' not found", to_name); }
+            if json {
+                println!("null");
+            } else {
+                println!("Symbol '{}' not found", to_name);
+            }
             return Ok(());
         }
     };
 
-    let path = store.get_shortest_path(&from.id, &to.id)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let path = store.get_shortest_path(&from.id, &to.id)?;
 
     match path {
         Some(ids) => {
             let mut steps = Vec::new();
             for id in &ids {
-                let sym = store.get_symbol(id).map_err(|e| anyhow::anyhow!("{}", e))?;
+                let sym = store.get_symbol(id)?;
                 steps.push(sym);
             }
 
             if json {
-                let items: Vec<serde_json::Value> = steps.iter().map(|s| match s {
-                    Some(s) => serde_json::json!({
-                        "name": s.name, "kind": s.kind.to_string(),
-                        "file": s.file_path.to_str(), "lines": [s.line_start, s.line_end],
-                    }),
-                    None => serde_json::json!(null),
-                }).collect();
+                let items: Vec<serde_json::Value> = steps
+                    .iter()
+                    .map(|s| match s {
+                        Some(s) => serde_json::json!({
+                            "name": s.name, "kind": s.kind.to_string(),
+                            "file": s.file_path.to_str(), "lines": [s.line_start, s.line_end],
+                        }),
+                        None => serde_json::json!(null),
+                    })
+                    .collect();
                 println!("{}", serde_json::to_string(&items)?);
             } else {
                 println!("Path ({} hops):", ids.len() - 1);
@@ -601,7 +702,12 @@ fn cmd_chain(
                             let arrow = if i < ids.len() - 1 { " →" } else { "" };
                             println!(
                                 "  {} ({}) at {}:{}–{}{}",
-                                s.name, s.kind, s.file_path.display(), s.line_start, s.line_end, arrow,
+                                s.name,
+                                s.kind,
+                                s.file_path.display(),
+                                s.line_start,
+                                s.line_end,
+                                arrow,
                             );
                         }
                         None => println!("  [unknown symbol]"),
@@ -610,7 +716,11 @@ fn cmd_chain(
             }
         }
         None => {
-            if json { println!("null"); } else { println!("No path from '{}' to '{}'", from_name, to_name); }
+            if json {
+                println!("null");
+            } else {
+                println!("No path from '{}' to '{}'", from_name, to_name);
+            }
         }
     }
 
@@ -619,7 +729,7 @@ fn cmd_chain(
 
 fn cmd_viz(
     config: &eagraph_core::Config,
-    data_dir: &PathBuf,
+    data_dir: &Path,
     registry: &eagraph_parser::LanguageRegistry,
     port: u16,
 ) -> Result<()> {
@@ -627,9 +737,14 @@ fn cmd_viz(
     for repo_config in &config.repos {
         match open_repo_store(config, data_dir, registry, &repo_config.name) {
             Ok((_, store)) => {
-                let symbols = store.get_all_symbols().map_err(|e| anyhow::anyhow!("{}", e))?;
-                let edges = store.get_all_edges().map_err(|e| anyhow::anyhow!("{}", e))?;
-                println!("  {}: {} symbols, {} edges", repo_config.name, symbols.len(), edges.len());
+                let symbols = store.get_all_symbols()?;
+                let edges = store.get_all_edges()?;
+                println!(
+                    "  {}: {} symbols, {} edges",
+                    repo_config.name,
+                    symbols.len(),
+                    edges.len()
+                );
                 repos.push((repo_config.name.clone(), symbols, edges));
             }
             Err(_) => {
@@ -651,17 +766,14 @@ fn resolve_file_path(file: &str, repo_root: &Path) -> PathBuf {
     }
 }
 
-fn cmd_init(config_path: &PathBuf, org: &str) -> Result<()> {
+fn cmd_init(config_path: &Path, org: &str) -> Result<()> {
     if config_path.exists() {
         anyhow::bail!("Config already exists at {}", config_path.display());
     }
     if let Some(parent) = config_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let content = format!(
-        "[organization]\nname = \"{}\"\n",
-        org,
-    );
+    let content = format!("[organization]\nname = \"{}\"\n", org,);
     std::fs::write(config_path, &content)?;
     println!("Created {}", config_path.display());
     println!();
@@ -670,9 +782,14 @@ fn cmd_init(config_path: &PathBuf, org: &str) -> Result<()> {
     Ok(())
 }
 
-fn cmd_add(config_path: &PathBuf, path: &str, name_override: Option<&str>, grammars_dir: &Path) -> Result<()> {
-    let repo_path = std::fs::canonicalize(path)
-        .with_context(|| format!("path not found: {}", path))?;
+fn cmd_add(
+    config_path: &Path,
+    path: &str,
+    name_override: Option<&str>,
+    grammars_dir: &Path,
+) -> Result<()> {
+    let repo_path =
+        std::fs::canonicalize(path).with_context(|| format!("path not found: {}", path))?;
 
     // Derive name from folder or use override
     let name = match name_override {
@@ -685,8 +802,15 @@ fn cmd_add(config_path: &PathBuf, path: &str, name_override: Option<&str>, gramm
     };
 
     // Validate name: alphanumeric, hyphens, underscores only
-    if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
-        anyhow::bail!("invalid repo name '{}'. Use letters, numbers, hyphens, underscores.", name);
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
+        anyhow::bail!(
+            "invalid repo name '{}'. Use letters, numbers, hyphens, underscores.",
+            name
+        );
     }
 
     if !config_path.exists() {
@@ -727,19 +851,27 @@ fn cmd_add(config_path: &PathBuf, path: &str, name_override: Option<&str>, gramm
         include,
     );
 
-    let mut file = std::fs::OpenOptions::new()
-        .append(true)
-        .open(config_path)?;
+    let mut file = std::fs::OpenOptions::new().append(true).open(config_path)?;
     std::io::Write::write_all(&mut file, entry.as_bytes())?;
 
     println!("Added '{}' at {}", name, repo_path.display());
     if !installed_exts.is_empty() {
-        println!("  include: {}", installed_exts.iter().map(|e| format!("*.{}", e)).collect::<Vec<_>>().join(", "));
+        println!(
+            "  include: {}",
+            installed_exts
+                .iter()
+                .map(|e| format!("*.{}", e))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
     }
 
     // Recommend missing grammars
     if !missing_langs.is_empty() {
-        let lang_names: Vec<&str> = missing_langs.iter().map(|(lang, _)| lang.as_str()).collect();
+        let lang_names: Vec<&str> = missing_langs
+            .iter()
+            .map(|(lang, _)| lang.as_str())
+            .collect();
         println!();
         println!("This repo also has files for languages without grammars installed:");
         for (lang, ext) in &missing_langs {
@@ -751,8 +883,7 @@ fn cmd_add(config_path: &PathBuf, path: &str, name_override: Option<&str>, gramm
     }
 
     // Index immediately
-    let registry = eagraph_parser::LanguageRegistry::from_dir(grammars_dir)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let registry = eagraph_parser::LanguageRegistry::from_dir(grammars_dir)?;
 
     if registry.supported_extensions().is_empty() {
         println!();
@@ -764,15 +895,28 @@ fn cmd_add(config_path: &PathBuf, path: &str, name_override: Option<&str>, gramm
     let data_dir = config_loader::resolve_data_dir(None)?;
     // Reload config to include the newly added repo
     let config = config_loader::load_config(config_path)?;
-    let repo_config = config.repos.iter().find(|r| r.name == name).expect("just added");
+    let repo_config = config
+        .repos
+        .iter()
+        .find(|r| r.name == name)
+        .expect("just added");
 
     println!();
     println!("Indexing {}...", name);
-    match indexer::index_repo(repo_config, &data_dir, &config.organization.name, &registry, false) {
+    match indexer::index_repo(
+        repo_config,
+        &data_dir,
+        &config.organization.name,
+        &registry,
+        false,
+    ) {
         Ok(result) => {
             println!(
                 "  {} files indexed, {} skipped, {} symbols, {} edges",
-                result.files_indexed, result.files_skipped, result.symbols_count, result.edges_count,
+                result.files_indexed,
+                result.files_skipped,
+                result.symbols_count,
+                result.edges_count,
             );
         }
         Err(e) => eprintln!("  indexing failed: {}", e),
@@ -808,16 +952,16 @@ fn scan_repo_extensions(
         }
     }
 
-    (found_installed.into_iter().collect(), found_missing.into_iter().collect())
+    (
+        found_installed.into_iter().collect(),
+        found_missing.into_iter().collect(),
+    )
 }
 
 // --- Output helpers ---
 
 fn print_context_entry(entry: &eagraph_retriever::ContextEntry) {
-    println!(
-        "## {} ({})",
-        entry.symbol.name, entry.symbol.kind,
-    );
+    println!("## {} ({})", entry.symbol.name, entry.symbol.kind,);
     println!(
         "   {}:{}–{}",
         entry.symbol.file_path.display(),
@@ -843,13 +987,17 @@ fn entry_to_json(entry: &eagraph_retriever::ContextEntry) -> serde_json::Value {
 }
 
 fn context_to_json(ctx: &eagraph_retriever::ContextResult) -> serde_json::Value {
-    let edges: Vec<serde_json::Value> = ctx.edges.iter().map(|e| {
-        serde_json::json!({
-            "source": e.source.0,
-            "target": e.target.0,
-            "kind": e.kind.to_string(),
+    let edges: Vec<serde_json::Value> = ctx
+        .edges
+        .iter()
+        .map(|e| {
+            serde_json::json!({
+                "source": e.source.0,
+                "target": e.target.0,
+                "kind": e.kind.to_string(),
+            })
         })
-    }).collect();
+        .collect();
 
     let neighbors: Vec<serde_json::Value> = ctx.neighbors.iter().map(entry_to_json).collect();
 
@@ -861,10 +1009,13 @@ fn context_to_json(ctx: &eagraph_retriever::ContextResult) -> serde_json::Value 
 }
 
 fn print_context_json(ctx: &eagraph_retriever::ContextResult) {
-    println!("{}", serde_json::to_string(&context_to_json(ctx)).expect("failed to serialize context"));
+    println!(
+        "{}",
+        serde_json::to_string(&context_to_json(ctx)).expect("failed to serialize context")
+    );
 }
 
-fn cmd_config(config_path: &PathBuf, grammars_dir: &PathBuf) -> Result<()> {
+fn cmd_config(config_path: &Path, grammars_dir: &Path) -> Result<()> {
     println!("Config path:   {}", config_path.display());
     println!("Grammars dir:  {}", grammars_dir.display());
     println!();

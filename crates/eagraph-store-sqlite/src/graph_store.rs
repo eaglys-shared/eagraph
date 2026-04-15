@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
-use rusqlite::{params, Connection, named_params};
+use rusqlite::{named_params, params, Connection};
 
 use eagraph_core::*;
 
@@ -21,7 +21,9 @@ impl SqliteGraphStore {
 
 impl SqliteGraphStore {
     pub fn begin_transaction(&self) -> Result<()> {
-        self.conn()?.execute_batch("BEGIN IMMEDIATE").map_err(map_err)
+        self.conn()?
+            .execute_batch("BEGIN IMMEDIATE")
+            .map_err(map_err)
     }
 
     pub fn commit_transaction(&self) -> Result<()> {
@@ -35,10 +37,13 @@ impl SqliteGraphStore {
     pub fn get_all_symbols(&self) -> Result<Vec<Symbol>> {
         let conn = self.conn()?;
         let mut stmt = conn
-            .prepare("SELECT id, name, kind, file_path, line_start, line_end, metadata FROM symbols")
+            .prepare(
+                "SELECT id, name, kind, file_path, line_start, line_end, metadata FROM symbols",
+            )
             .map_err(map_err)?;
         let rows = stmt.query_map([], row_to_symbol).map_err(map_err)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(map_err)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(map_err)
     }
 
     pub fn get_all_edges(&self) -> Result<Vec<Edge>> {
@@ -51,12 +56,18 @@ impl SqliteGraphStore {
                 Ok(Edge {
                     source: SymbolId(row.get(0)?),
                     target: SymbolId(row.get(1)?),
-                    kind: EdgeKind::from_str(&row.get::<_, String>(2)?)
-                        .unwrap_or(EdgeKind::References),
+                    kind: row.get::<_, String>(2)?.parse::<EdgeKind>().map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            2,
+                            rusqlite::types::Type::Text,
+                            e.into(),
+                        )
+                    })?,
                 })
             })
             .map_err(map_err)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(map_err)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(map_err)
     }
 
     /// Get all file records (path + last_indexed timestamp).
@@ -74,7 +85,8 @@ impl SqliteGraphStore {
                 })
             })
             .map_err(map_err)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(map_err)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(map_err)
     }
 
     pub fn open(path: &Path) -> Result<Self> {
@@ -100,11 +112,21 @@ impl SqliteGraphStore {
 
 fn row_to_symbol(row: &rusqlite::Row) -> rusqlite::Result<Symbol> {
     let metadata_str: Option<String> = row.get(6)?;
-    let metadata = metadata_str.and_then(|s| serde_json::from_str(&s).ok());
+    let metadata = metadata_str
+        .map(|s| serde_json::from_str(&s))
+        .transpose()
+        .map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, e.into())
+        })?;
     Ok(Symbol {
         id: SymbolId(row.get(0)?),
         name: row.get(1)?,
-        kind: SymbolKind::from_str(&row.get::<_, String>(2)?).unwrap_or(SymbolKind::Variable),
+        kind: row
+            .get::<_, String>(2)?
+            .parse::<SymbolKind>()
+            .map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, e.into())
+            })?,
         file_path: PathBuf::from(row.get::<_, String>(3)?),
         line_start: row.get(4)?,
         line_end: row.get(5)?,
@@ -122,11 +144,12 @@ impl GraphStore for SqliteGraphStore {
         let mut stmt = conn.prepare_cached(sql::UPSERT_SYMBOL).map_err(map_err)?;
         for s in symbols {
             let metadata_str = s.metadata.as_ref().map(|m| m.to_string());
+            let file_path = eagraph_core::path_to_str(&s.file_path)?;
             stmt.execute(named_params! {
                 ":id": &s.id.0,
                 ":name": &s.name,
                 ":kind": s.kind.to_string(),
-                ":file_path": s.file_path.to_str().unwrap_or(""),
+                ":file_path": file_path,
                 ":line_start": s.line_start,
                 ":line_end": s.line_end,
                 ":metadata": metadata_str,
@@ -152,7 +175,7 @@ impl GraphStore for SqliteGraphStore {
 
     fn delete_file_data(&self, file_path: &Path) -> Result<()> {
         let conn = self.conn()?;
-        let fp = file_path.to_str().unwrap_or("");
+        let fp = eagraph_core::path_to_str(file_path)?;
         // delete_file_data.sql has multiple statements, execute them individually
         conn.execute(
             "DELETE FROM annotations WHERE symbol_id IN (SELECT id FROM symbols WHERE file_path = ?1)",
@@ -171,10 +194,11 @@ impl GraphStore for SqliteGraphStore {
 
     fn upsert_file_record(&self, record: &FileRecord) -> Result<()> {
         let conn = self.conn()?;
+        let path = eagraph_core::path_to_str(&record.path)?;
         conn.prepare_cached(sql::UPSERT_FILE_RECORD)
             .map_err(map_err)?
             .execute(named_params! {
-                ":path": record.path.to_str().unwrap_or(""),
+                ":path": path,
                 ":content_hash": &record.content_hash,
                 ":last_indexed": record.last_indexed,
             })
@@ -213,9 +237,7 @@ impl GraphStore for SqliteGraphStore {
                     .map_err(map_err)
             }
             None => {
-                let mut stmt = conn
-                    .prepare_cached(sql::SEARCH_SYMBOLS)
-                    .map_err(map_err)?;
+                let mut stmt = conn.prepare_cached(sql::SEARCH_SYMBOLS).map_err(map_err)?;
                 let rows = stmt
                     .query_map(named_params! { ":query": query }, row_to_symbol)
                     .map_err(map_err)?;
@@ -227,13 +249,14 @@ impl GraphStore for SqliteGraphStore {
 
     fn get_file_symbols(&self, file_path: &Path) -> Result<Vec<Symbol>> {
         let conn = self.conn()?;
+        let fp = eagraph_core::path_to_str(file_path)?;
         let mut stmt = conn
             .prepare_cached(
                 "SELECT id, name, kind, file_path, line_start, line_end, metadata FROM symbols WHERE file_path = ?1",
             )
             .map_err(map_err)?;
         let rows = stmt
-            .query_map(params![file_path.to_str().unwrap_or("")], row_to_symbol)
+            .query_map(params![fp], row_to_symbol)
             .map_err(map_err)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(map_err)
@@ -241,10 +264,8 @@ impl GraphStore for SqliteGraphStore {
 
     fn get_file_record(&self, file_path: &Path) -> Result<Option<FileRecord>> {
         let conn = self.conn()?;
-        let mut stmt = conn
-            .prepare_cached(sql::GET_FILE_RECORD)
-            .map_err(map_err)?;
-        let fp = file_path.to_str().unwrap_or("");
+        let mut stmt = conn.prepare_cached(sql::GET_FILE_RECORD).map_err(map_err)?;
+        let fp = eagraph_core::path_to_str(file_path)?;
         let mut rows = stmt.query(named_params! { ":path": fp }).map_err(map_err)?;
         match rows.next().map_err(map_err)? {
             Some(row) => Ok(Some(FileRecord {
@@ -256,12 +277,7 @@ impl GraphStore for SqliteGraphStore {
         }
     }
 
-    fn get_neighbors(
-        &self,
-        id: &SymbolId,
-        direction: Direction,
-        depth: u32,
-    ) -> Result<SubGraph> {
+    fn get_neighbors(&self, id: &SymbolId, direction: Direction, depth: u32) -> Result<SubGraph> {
         let conn = self.conn()?;
         let query = match direction {
             Direction::Outgoing => sql::GET_NEIGHBORS_OUTGOING,
@@ -307,8 +323,13 @@ impl GraphStore for SqliteGraphStore {
                 Ok(Edge {
                     source: SymbolId(row.get(0)?),
                     target: SymbolId(row.get(1)?),
-                    kind: EdgeKind::from_str(&row.get::<_, String>(2)?)
-                        .unwrap_or(EdgeKind::References),
+                    kind: row.get::<_, String>(2)?.parse::<EdgeKind>().map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            2,
+                            rusqlite::types::Type::Text,
+                            e.into(),
+                        )
+                    })?,
                 })
             })
             .map_err(map_err)?
@@ -318,11 +339,7 @@ impl GraphStore for SqliteGraphStore {
         Ok(SubGraph { symbols, edges })
     }
 
-    fn get_shortest_path(
-        &self,
-        from: &SymbolId,
-        to: &SymbolId,
-    ) -> Result<Option<Vec<SymbolId>>> {
+    fn get_shortest_path(&self, from: &SymbolId, to: &SymbolId) -> Result<Option<Vec<SymbolId>>> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(sql::GET_SHORTEST_PATH).map_err(map_err)?;
         let mut rows = stmt
@@ -331,7 +348,8 @@ impl GraphStore for SqliteGraphStore {
         match rows.next().map_err(map_err)? {
             Some(row) => {
                 let trail: String = row.get(0).map_err(map_err)?;
-                let path: Vec<SymbolId> = trail.split(',').map(|s| SymbolId(s.to_string())).collect();
+                let path: Vec<SymbolId> =
+                    trail.split(',').map(|s| SymbolId(s.to_string())).collect();
                 Ok(Some(path))
             }
             None => Ok(None),
@@ -367,9 +385,7 @@ impl GraphStore for SqliteGraphStore {
 
     fn get_annotations(&self, symbol_id: &SymbolId) -> Result<Vec<Annotation>> {
         let conn = self.conn()?;
-        let mut stmt = conn
-            .prepare_cached(sql::GET_ANNOTATIONS)
-            .map_err(map_err)?;
+        let mut stmt = conn.prepare_cached(sql::GET_ANNOTATIONS).map_err(map_err)?;
         let rows = stmt
             .query_map(named_params! { ":symbol_id": &symbol_id.0 }, |row| {
                 Ok(Annotation {

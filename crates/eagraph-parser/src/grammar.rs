@@ -50,9 +50,7 @@ fn find_library(dir: &Path, name: &str) -> Result<std::path::PathBuf, String> {
             dir.join(format!("{}.so", name)),
         ]
     } else if cfg!(target_os = "windows") {
-        vec![
-            dir.join(format!("{}.dll", name)),
-        ]
+        vec![dir.join(format!("{}.dll", name))]
     } else {
         vec![
             dir.join(format!("{}.so", name)),
@@ -72,7 +70,11 @@ fn find_library(dir: &Path, name: &str) -> Result<std::path::PathBuf, String> {
         dir.display(),
         candidates
             .iter()
-            .map(|p| p.file_name().unwrap_or_default().to_string_lossy().to_string())
+            .map(|p| p
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string())
             .collect::<Vec<_>>()
             .join(", ")
     ))

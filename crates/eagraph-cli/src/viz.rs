@@ -21,8 +21,8 @@ pub fn serve(repos: Vec<(String, Vec<Symbol>, Vec<Edge>)>, port: u16) -> Result<
     let repos_json = serde_json::to_string(&repo_names)?;
 
     let addr = format!("0.0.0.0:{}", port);
-    let server = Server::http(&addr)
-        .map_err(|e| anyhow::anyhow!("failed to bind {}: {}", addr, e))?;
+    let server =
+        Server::http(&addr).map_err(|e| anyhow::anyhow!("failed to bind {}: {}", addr, e))?;
 
     println!("http://localhost:{}", port);
 
@@ -38,14 +38,20 @@ pub fn serve(repos: Vec<(String, Vec<Symbol>, Vec<Edge>)>, port: u16) -> Result<
             Response::from_string(D3_JS).with_header(ct("application/javascript"))
         } else if url == "/repos.json" {
             Response::from_string(&repos_json).with_header(ct("application/json"))
-        } else if url.starts_with("/data/") {
-            let repo_name = &url[6..]; // strip "/data/"
+        } else if let Some(repo_name) = url.strip_prefix("/data/") {
+            // strip "/data/"
             match repo_data.get(repo_name) {
-                Some(data) => Response::from_string(data.as_str()).with_header(ct("application/json")),
-                None => Response::from_string("404").with_status_code(404).with_header(ct("text/plain")),
+                Some(data) => {
+                    Response::from_string(data.as_str()).with_header(ct("application/json"))
+                }
+                None => Response::from_string("404")
+                    .with_status_code(404)
+                    .with_header(ct("text/plain")),
             }
         } else {
-            Response::from_string("404").with_status_code(404).with_header(ct("text/plain"))
+            Response::from_string("404")
+                .with_status_code(404)
+                .with_header(ct("text/plain"))
         };
         let _ = request.respond(response);
     }
@@ -57,18 +63,28 @@ fn ct(mime: &str) -> Header {
     Header::from_bytes("Content-Type", mime).expect("valid header")
 }
 
+/// Paths in symbols/edges originate from the DB, where they are validated as UTF-8
+/// at upsert time (see eagraph_core::path_to_str in the store). A non-UTF-8 path
+/// here means the invariant was violated upstream — surface it as a panic.
+fn path_str(p: &std::path::Path) -> &str {
+    p.to_str()
+        .expect("file_path must be UTF-8 (enforced at store boundary)")
+}
+
 fn build_graph_json(symbols: &[Symbol], edges: &[Edge]) -> String {
     let sym_nodes: Vec<serde_json::Value> = symbols
         .iter()
         .map(|s| {
-            let lang = s.file_path.extension()
+            let lang = s
+                .file_path
+                .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("");
             serde_json::json!({
                 "id": s.id.0,
                 "name": s.name,
                 "kind": s.kind.to_string(),
-                "file": s.file_path.to_str().unwrap_or(""),
+                "file": path_str(&s.file_path),
                 "lang": lang,
                 "lineStart": s.line_start,
                 "lineEnd": s.line_end,
@@ -76,8 +92,7 @@ fn build_graph_json(symbols: &[Symbol], edges: &[Edge]) -> String {
         })
         .collect();
 
-    let id_set: std::collections::HashSet<&str> =
-        symbols.iter().map(|s| s.id.0.as_str()).collect();
+    let id_set: std::collections::HashSet<&str> = symbols.iter().map(|s| s.id.0.as_str()).collect();
 
     let sym_links: Vec<serde_json::Value> = edges
         .iter()
@@ -91,10 +106,12 @@ fn build_graph_json(symbols: &[Symbol], edges: &[Edge]) -> String {
         })
         .collect();
 
-    let mut symbol_to_file: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
-    let mut file_symbol_count: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    let mut symbol_to_file: std::collections::HashMap<&str, &str> =
+        std::collections::HashMap::new();
+    let mut file_symbol_count: std::collections::HashMap<&str, usize> =
+        std::collections::HashMap::new();
     for s in symbols {
-        let file = s.file_path.to_str().unwrap_or("");
+        let file = path_str(&s.file_path);
         symbol_to_file.insert(&s.id.0, file);
         *file_symbol_count.entry(file).or_insert(0) += 1;
     }
@@ -119,7 +136,9 @@ fn build_graph_json(symbols: &[Symbol], edges: &[Edge]) -> String {
             symbol_to_file.get(e.target.0.as_str()),
         ) {
             if src_file != tgt_file {
-                *file_edge_counts.entry((src_file, tgt_file, e.kind.to_string())).or_insert(0) += 1;
+                *file_edge_counts
+                    .entry((src_file, tgt_file, e.kind.to_string()))
+                    .or_insert(0) += 1;
             }
         }
     }
