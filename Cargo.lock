@@ -262,7 +262,7 @@ dependencies = [
 
 [[package]]
 name = "eagraph-cli"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -286,7 +286,7 @@ dependencies = [
 
 [[package]]
 name = "eagraph-core"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -295,14 +295,14 @@ dependencies = [
 
 [[package]]
 name = "eagraph-crossref"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "eagraph-core",
 ]
 
 [[package]]
 name = "eagraph-mcp"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "eagraph-core",
  "eagraph-retriever",
@@ -310,7 +310,7 @@ dependencies = [
 
 [[package]]
 name = "eagraph-parser"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "eagraph-core",
  "libloading",
@@ -322,14 +322,14 @@ dependencies = [
 
 [[package]]
 name = "eagraph-retriever"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "eagraph-core",
 ]
 
 [[package]]
 name = "eagraph-store-sqlite"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "eagraph-core",
  "rusqlite",
