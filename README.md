@@ -18,11 +18,7 @@ Written in Rust. Uses tree-sitter for parsing, SQLite for storage. All data live
 
 Below is an example of a exploration of Tiny C Compiler source code, a fairly large codebase. The prompt is about tracing execution path of code compilation from source files to executable output. With `eagraph` skill (left part) and `eagraph-explorer` agent, it could dramatically cut the tool calling count, token usage, and exploration time. The result is also more precise by including line number of the function of interests. YMMV.
 
-<img width="1041" height="425" alt="image" src="https://github.com/user-attachments/assets/ea58dfbf-89de-4c6d-a521-e7c038132d82" />
-  
-
-
-
+<img width="1053" height="440" alt="image" src="https://github.com/user-attachments/assets/fb17116c-16ec-4ae2-bea0-4fc86b82edd2" />
 
 ## Install
 
