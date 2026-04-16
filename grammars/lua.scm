@@ -12,10 +12,6 @@
   name: (method_index_expression
     method: (identifier) @func.name)) @func.def
 
-; Local function statements
-(local_function_statement
-  name: (identifier) @func.name) @func.def
-
 ; Function calls
 (function_call
   name: (identifier) @call.name) @call.def
