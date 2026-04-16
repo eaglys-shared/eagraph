@@ -4,6 +4,33 @@
 
 A headless Rust server that builds and serves a **multi-repo** code knowledge graph via MCP. The graph is organization-scoped, spanning multiple repositories with cross-repo edge resolution. Optionally wrapped in a Tauri shell for configuration and visualization.
 
+## Implementation status
+
+This document describes the full intended architecture. Not all of it is built yet. As of v1.0.0:
+
+**Shipped:**
+- `eagraph-core` types and traits (§2).
+- `SqliteGraphStore` implementation with WAL, two-pass edge writes, and `.sql` files embedded via `include_str!` (§3).
+- Generic tree-sitter extractor with dynamic grammar loading via `libloading`, `RawEdge` resolution scoped by language (§1).
+- `ContextRetriever` for same-repo queries: `get_context`, `get_dependents`, `get_file_symbols`, `get_call_chain` (§6).
+- Snippet reader (§9).
+- Config resolution via `dirs` crate, per-repo `[[repos]]` entries, auto-refresh on every query via mtime check (§10).
+- CLI: `init`, `add`, `index`, `status`, `query`, `context`, `dependents`, `symbols`, `chain`, `viz`, `config`, `grammars add/list/check`.
+- Interactive web visualizer (d3-force, embedded web server, Kind + Language dropdown filters, search).
+- Claude Code skill (`skill/`) and subagent (`agent/`).
+- CI/CD with release workflow producing precompiled binaries for Linux x86_64 and macOS Apple Silicon.
+
+**Not yet built:**
+- §4 Embedding Strategy. `EmbeddingStore` trait and any implementation.
+- §5 Cross-Repo Edge Resolution. `eagraph-crossref` is an empty stub crate; `CrossRefStore`, `CrossRepoEdge`, `UnresolvedCrossRef`, and `crossref.db` do not exist. `[[deps]]` is not parsed. `eagraph deps add/remove/list/check` commands are not implemented.
+- §7 File Watcher. No `notify` watchers, no branch switch detection, no live re-indexing.
+- §8 MCP Server. `eagraph-mcp` is an empty stub. `eagraph serve` does not exist. No tool registration.
+- `Enricher` trait, `GitBlameEnricher`, `CodeownersEnricher`, annotations in query responses.
+- `eagraph-tauri` crate. Not present in the workspace.
+- `eagraph prune` command for cleaning stale branch DBs.
+
+Sections below are annotated with [SHIPPED], [PARTIAL], or [PLANNED] so the reader can tell which parts describe code that exists today.
+
 ### Data Hierarchy
 
 ```
@@ -24,7 +51,7 @@ One SQLite DB per repo per branch, stored in the OS application data directory (
 
 ## Components
 
-### 1. Parser Engine
+### 1. Parser Engine [SHIPPED]
 
 Responsible for extracting symbols and relationships from source files using tree-sitter.
 
@@ -84,7 +111,9 @@ struct FileRecord {
 
 Symbol IDs are scoped within a branch DB so they don't need repo or branch qualifiers. Cross-repo edges and unresolved refs are separate types stored in `crossref.db` with full repo+branch context.
 
-### 2. Storage Traits
+### 2. Storage Traits [PARTIAL]
+
+`GraphStore` is implemented. `CrossRefStore`, `EmbeddingStore`, and `Enricher` are not yet wired; the traits shown below are the intended shape.
 
 All persistence goes through traits. `GraphStore` and `EmbeddingStore` for storage, `Enricher` for post-indexing hooks.
 
@@ -182,7 +211,9 @@ Future enrichers: `GitBlameEnricher` (last author, commit, date per symbol), `Co
 | `EmbeddingStore` | not wired               | `SqliteVecStore`, `UsearchStore`, `QdrantStore` |
 | `Enricher`       | not wired               | `GitBlameEnricher`, `CodeownersEnricher` |
 
-### 3. SQLite GraphStore Implementation
+### 3. SQLite GraphStore Implementation [SHIPPED]
+
+Only `SqliteGraphStore` and the branch DB schema exist. `crossref_schema.sql`, the crossref_queries directory, and `SqliteCrossRefStore` are planned (see §5) and not present in the current `eagraph-store-sqlite/sql/` tree.
 
 SQL lives in `.sql` files, not in Rust strings. Embedded at compile time via `include_str!` so they're still part of the binary, but editable and readable as standalone files.
 
@@ -313,7 +344,7 @@ Each query is a named `.sql` file with `:named` parameters. The Rust code loads 
 
 WAL mode enabled at connection init. Everything except `get_neighbors` and `get_shortest_path` is straightforward CRUD.
 
-### 4. Embedding Strategy (Later Stage)
+### 4. Embedding Strategy [PLANNED]
 
 When implemented, embeddings serve a different retrieval path than the graph:
 
@@ -335,7 +366,9 @@ Embedding model options: local (onnxruntime with a small model like `all-MiniLM-
 
 The `EmbeddingStore` trait keeps this completely decoupled. You can swap sqlite-vec for usearch for qdrant without touching anything above the trait boundary.
 
-### 5. Cross-Repo Edge Resolution
+### 5. Cross-Repo Edge Resolution [PLANNED]
+
+`eagraph-crossref` is an empty stub crate. Nothing below this heading exists in code yet. The design is committed but unimplemented.
 
 Cross-repo edges require explicit dependency declarations. The system does not guess, infer, or heuristically match imports to repos. Every cross-repo relationship flows from a user-declared `[[deps]]` entry in the config.
 
@@ -417,7 +450,9 @@ eagraph deps check                          # show unresolved refs across all re
 
 `eagraph deps check` is the ongoing version of the init-time prompt. Run it after adding a new repo to see what new unresolved externals appeared.
 
-### 6. Context Retriever
+### 6. Context Retriever [PARTIAL]
+
+The single-repo subset works today: `get_context`, `get_dependents`, `get_file_symbols`, `get_call_chain`, and the snippet reader are all implemented in `eagraph-retriever`. The cross-repo and semantic methods (`get_semantic_context`, `get_combined_context`, `get_cross_repo_impact`) shown below require §4 and §5 and are not yet built.
 
 This is the layer between storage and MCP. It manages multiple `GraphStore` handles (one per active repo+branch) and a single `CrossRefStore`. It doesn't know about SQLite or vectors.
 
@@ -452,7 +487,9 @@ struct ContextResult {
 
 `get_combined_context` merges graph neighbors with embedding nearest-neighbors, deduplicates, and ranks. The merge strategy is a config knob.
 
-### 7. File Watcher
+### 7. File Watcher [PLANNED]
+
+Not implemented. `eagraph index` is manual today; `eagraph` query commands auto-refresh stale files via mtime comparison before every read, which covers most development flows without a watcher.
 
 - One `notify` watcher **per repo**, each tracking its current branch via periodic `git rev-parse --abbrev-ref HEAD`
 - On branch switch: detect new branch name, activate (or create) the corresponding branch DB, no re-parse needed if DB already exists
@@ -462,7 +499,9 @@ struct ContextResult {
 - On branch switch / git pull: batch re-index for that repo+branch
 - Debounce: 200-500ms per watcher
 
-### 8. MCP Server
+### 8. MCP Server [PLANNED]
+
+`eagraph-mcp` is an empty stub crate. `eagraph serve` does not exist. Claude Code integration today goes through the skill in `skill/SKILL.md`, which invokes the CLI directly.
 
 JSON-RPC over stdio (for Claude Code / local tools) and SSE (for remote clients / Tauri).
 
@@ -527,7 +566,7 @@ The `annotations` field is only present when enrichers have produced data. No en
 
 The `unresolved` field surfaces cross-repo refs that couldn't be matched to actual symbols. This tells the LLM (or the user) that there are known dependencies missing from the graph. Either the target repo isn't indexed, the `[[deps]]` mapping is missing, or the import path doesn't match any symbol.
 
-### 9. Snippet Reader
+### 9. Snippet Reader [SHIPPED]
 
 Reads actual source lines from disk for symbols in a retrieval result. The graph tells us *where* to look, this component reads the content.
 
@@ -535,7 +574,9 @@ Reads actual source lines from disk for symbols in a retrieval result. The graph
 - Configurable surrounding context lines
 - Respects `.gitignore` and config excludes
 
-### 10. Config
+### 10. Config [PARTIAL]
+
+Config path resolution, per-repo `[[repos]]` entries, branch-DB layout, and `EAGRAPH_CONFIG` override all work today. `[[deps]]` is documented below but not parsed (requires §5). `branch_ttl` and `eagraph prune` are not implemented. The `[server]`, `[graph].max_hop_depth`, and `[embeddings]` sections are not consumed yet.
 
 Config and data live in the OS canonical application directory, not inside repositories. Resolved via the `dirs` crate.
 
@@ -623,27 +664,44 @@ Repos point to code directories but eagraph never writes anything inside them. N
 
 ## Binary Modes
 
+**Shipped today:**
+
 ```
-eagraph init                           # scaffold config, interactive dep mapping
-eagraph serve                          # headless, MCP over stdio
-eagraph serve --sse                    # headless, MCP over SSE
-eagraph index                          # index all repos, current branches
-eagraph index --repo api-service       # index a single repo, current branch
-eagraph query "func_name"              # CLI query for debugging
-eagraph query "func_name" --repo X     # scoped to one repo
-eagraph status                         # show all repos, branches, symbol/edge counts
-eagraph config                         # print resolved config path and contents
-eagraph prune                          # delete branch DBs older than branch_ttl
-eagraph prune --repo api-service       # prune a single repo
-eagraph deps add <pkg> --repo <repo>   # add a dep mapping
-eagraph deps remove <pkg>              # remove a dep mapping
-eagraph deps list                      # show all mappings + resolution status
-eagraph deps check                     # show unresolved refs across all repos
+eagraph init <org>                         # scaffold config
+eagraph add <path> [--name X]              # add a repo, detect languages, auto-index
+eagraph index <repo> [--force] [--all]     # index repo(s)
+eagraph status                             # show all repos, branches, symbol counts
+eagraph query <name> [--repo X]            # search symbols by name
+eagraph context <symbol> [--depth N]       # symbol neighborhood + snippets
+eagraph dependents <file> [--depth N]      # reverse traversal for a file
+eagraph symbols <file>                     # file table of contents
+eagraph chain <from> <to>                  # shortest call path
+eagraph viz [--port N]                     # interactive graph in browser
+eagraph config                             # print resolved config path and contents
+eagraph grammars add <lang>...             # compile and install a grammar
+eagraph grammars list                      # show installed and available grammars
+eagraph grammars check                     # recommend grammars based on indexed repos
 ```
 
-Same binary, different entry points. Tauri app spawns `eagraph serve --sse` as a sidecar.
+All query commands accept `--json` for structured output. `--repo` auto-detects from cwd.
 
-## Tauri App (Separate Crate)
+**Planned (not implemented):**
+
+```
+eagraph serve                              # MCP over stdio (§8)
+eagraph serve --sse                        # MCP over SSE (§8)
+eagraph prune [--repo X]                   # delete stale branch DBs (§10)
+eagraph deps add <pkg> --repo <repo>       # add a [[deps]] mapping (§5)
+eagraph deps remove <pkg>                  # remove a [[deps]] mapping (§5)
+eagraph deps list                          # show [[deps]] mappings (§5)
+eagraph deps check                         # show unresolved cross-repo refs (§5)
+```
+
+Same binary, different entry points. A Tauri app is contemplated but not built.
+
+## Tauri App (Separate Crate) [PLANNED]
+
+Not built. No `eagraph-tauri` crate exists in the workspace today. The design below is the intended shape when it ships. The web UI at `eagraph viz` is a much smaller stand-in: it runs off a local tiny_http server and covers graph visualization, search, and filtering.
 
 Thin client. Communicates with the server over SSE/HTTP.
 
@@ -663,18 +721,23 @@ Does NOT embed any graph or embedding logic.
 eagraph/
 ├── Cargo.toml                  # workspace
 ├── crates/
-│   ├── eagraph-core/         # domain types, GraphStore + EmbeddingStore + Enricher traits
-│   ├── eagraph-store-sqlite/ # SqliteGraphStore, SqliteCrossRefStore, SqliteVecStore (later)
-│   │   └── sql/              # .sql files: schemas, queries
-│   ├── eagraph-parser/       # tree-sitter engine, language extractors
-│   ├── eagraph-crossref/     # cross-repo reconciliation engine
-│   ├── eagraph-retriever/    # ContextRetriever, snippet reading, ranking
-│   ├── eagraph-mcp/          # MCP protocol, tool definitions, server
-│   ├── eagraph-cli/          # binary, CLI commands
-│   └── eagraph-tauri/        # tauri app (optional)
-├── grammars/
-└── config.example.toml
+│   ├── eagraph-core/         # domain types, GraphStore trait, path_to_str helper       [SHIPPED]
+│   ├── eagraph-store-sqlite/ # SqliteGraphStore; SqliteCrossRefStore + SqliteVecStore   [PARTIAL]
+│   │   └── sql/              # .sql files: branch_schema, queries
+│   ├── eagraph-parser/       # tree-sitter engine, language extractors                  [SHIPPED]
+│   ├── eagraph-retriever/    # ContextRetriever, snippet reader                         [SHIPPED]
+│   ├── eagraph-crossref/     # cross-repo reconciliation engine                         [STUB]
+│   ├── eagraph-mcp/          # MCP protocol, tool definitions, server                   [STUB]
+│   └── eagraph-cli/          # binary, CLI commands, web visualizer                     [SHIPPED]
+├── grammars/                 # .scm + .toml per language, registry.toml
+├── skill/                    # Claude Code skill (SKILL.md)
+├── agent/                    # Claude Code subagent (eagraph-explorer.md)
+├── scripts/                  # release.sh
+├── .github/workflows/        # ci.yml (fmt + clippy + test), release.yml (tag → binaries)
+└── tests/fixtures/           # grammars-src/ (vendored C), sample-repo/ (Python)
 ```
+
+`eagraph-tauri` is planned but not present. `SqliteCrossRefStore` and `SqliteVecStore` are planned but not implemented; `eagraph-store-sqlite` currently contains only `SqliteGraphStore`.
 
 ## Dependency Flow
 
