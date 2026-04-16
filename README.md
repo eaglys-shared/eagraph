@@ -1,3 +1,4 @@
+[English](README.md) | [日本語](README.ja.md)
 
 <p align="center">
   <b>E A G R A P H</b>
