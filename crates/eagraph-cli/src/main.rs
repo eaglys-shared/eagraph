@@ -72,6 +72,9 @@ enum Command {
         /// Traversal depth
         #[arg(long, default_value = "2")]
         depth: u32,
+        /// Max neighbors to return (caps output size and snippet I/O)
+        #[arg(long)]
+        limit: Option<usize>,
     },
     /// Show what depends on symbols in a file
     Dependents {
@@ -83,6 +86,9 @@ enum Command {
         /// Traversal depth
         #[arg(long, default_value = "1")]
         depth: u32,
+        /// Max neighbors per symbol (caps output size and snippet I/O)
+        #[arg(long)]
+        limit: Option<usize>,
     },
     /// List all symbols in a file
     Symbols {
@@ -176,13 +182,23 @@ fn main() -> Result<()> {
         Command::Query { name, repo } => {
             cmd_query(&config, &data_dir, &registry, &name, repo.as_deref(), json)
         }
-        Command::Context { name, repo, depth } => {
+        Command::Context {
+            name,
+            repo,
+            depth,
+            limit,
+        } => {
             let r = resolve_repo_name(&config, repo.as_deref())?;
-            cmd_context(&config, &data_dir, &registry, &name, &r, depth, json)
+            cmd_context(&config, &data_dir, &registry, &name, &r, depth, limit, json)
         }
-        Command::Dependents { file, repo, depth } => {
+        Command::Dependents {
+            file,
+            repo,
+            depth,
+            limit,
+        } => {
             let r = resolve_repo_name(&config, repo.as_deref())?;
-            cmd_dependents(&config, &data_dir, &registry, &file, &r, depth, json)
+            cmd_dependents(&config, &data_dir, &registry, &file, &r, depth, limit, json)
         }
         Command::Symbols { file, repo } => {
             let r = resolve_repo_name(&config, repo.as_deref())?;
@@ -473,6 +489,7 @@ fn open_repo_store(
     Ok((repo_config, store))
 }
 
+#[allow(clippy::too_many_arguments)] // each param maps to a CLI flag
 fn cmd_context(
     config: &eagraph_core::Config,
     data_dir: &Path,
@@ -480,11 +497,12 @@ fn cmd_context(
     name: &str,
     repo_name: &str,
     depth: u32,
+    limit: Option<usize>,
     json: bool,
 ) -> Result<()> {
     let (repo_config, store) = open_repo_store(config, data_dir, registry, repo_name)?;
 
-    let result = eagraph_retriever::get_context(&store, &repo_config.root, name, depth, 2)?;
+    let result = eagraph_retriever::get_context(&store, &repo_config.root, name, depth, 2, limit)?;
 
     let ctx = match result {
         Some(c) => c,
@@ -535,6 +553,7 @@ fn cmd_context(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)] // each param maps to a CLI flag
 fn cmd_dependents(
     config: &eagraph_core::Config,
     data_dir: &Path,
@@ -542,13 +561,14 @@ fn cmd_dependents(
     file: &str,
     repo_name: &str,
     depth: u32,
+    limit: Option<usize>,
     json: bool,
 ) -> Result<()> {
     let (repo_config, store) = open_repo_store(config, data_dir, registry, repo_name)?;
     let file_path = resolve_file_path(file, &repo_config.root);
 
     let results =
-        eagraph_retriever::get_dependents(&store, &repo_config.root, &file_path, depth, 2)?;
+        eagraph_retriever::get_dependents(&store, &repo_config.root, &file_path, depth, 2, limit)?;
 
     if json {
         let items: Vec<serde_json::Value> = results.iter().map(context_to_json).collect();

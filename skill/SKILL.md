@@ -28,18 +28,18 @@ Data is always fresh. eagraph auto-refreshes stale files before every query.
 ### Get structural context for a symbol
 
 ```bash
-eagraph --json context <symbol-name> --repo <repo>
+eagraph --json context <symbol-name> --repo <repo> --depth 2 --limit 50
 ```
 
-Returns the symbol's source code, all symbols it calls/imports/inherits, and all symbols that call/import/inherit it, with source snippets. Use `--depth 3` for deeper traversal.
+Returns the symbol's source code, all symbols it calls/imports/inherits, and all symbols that call/import/inherit it, with source snippets. Use `--depth 2` or `--depth 3` for deeper traversal. Use `--limit N` to cap the number of returned neighbors (prevents output explosion on highly-connected symbols). Neighbors are sorted by distance from the root symbol, so the limit keeps the closest ones.
 
 ### Get dependents of a file
 
 ```bash
-eagraph --json dependents <file-path> --repo <repo>
+eagraph --json dependents <file-path> --repo <repo> --limit 50
 ```
 
-Returns every symbol in the file and what depends on each one. File path is relative to the repo root.
+Returns every symbol in the file and what depends on each one. File path is relative to the repo root. `--limit N` caps neighbors per symbol.
 
 ### List all symbols in a file
 
