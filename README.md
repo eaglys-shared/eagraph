@@ -13,8 +13,16 @@
 ---
 
 eagraph is a code knowledge graph designed to reduce the tokens Claude Code spends on navigation. When an agent needs to find callers, trace a call chain, or map a file's structure, it would otherwise chain several grep, glob, and read calls. eagraph answers the same question with a single query against a pre-built index. The project ships as a Claude Code skill, runs as a standalone CLI, and includes an interactive graph visualizer for browsing your codebase.
-
 Written in Rust. Uses tree-sitter for parsing, SQLite for storage. All data lives in the OS application directory, never inside your repos.
+
+
+Below is an example of a exploration of Tiny C Compiler source code, a fairly large codebase. The prompt is about tracing execution path of code compilation from source files to executable output. With `eagraph` skill (left part) and `eagraph-explorer` agent, it could dramatically cut the tool calling count, token usage, and exploration time. The result is also more precise by including line number of the function of interests. YMMV.
+
+<img width="1041" height="425" alt="image" src="https://github.com/user-attachments/assets/ea58dfbf-89de-4c6d-a521-e7c038132d82" />
+  
+
+
+
 
 ## Install
 
@@ -36,7 +44,7 @@ sudo install eagraph-v<X.Y.Z>-<target>/eagraph /usr/local/bin/
 
 ### macOS: unsigned binary
 
-The macOS builds are **not code-signed or notarized**. Gatekeeper will refuse to launch the binary on first run with an error similar to *"eagraph cannot be opened because the developer cannot be verified."* Remove the quarantine attribute to allow it through:
+The macOS builds are **not code-signed or notarized**. Gatekeeper will refuse to launch the binary on first run with an error similar to *"eagraph cannot be opened because the developer cannot be verified"* or *"the executable is damaged"*. Remove the quarantine attribute to allow it through:
 
 ```bash
 xattr -d com.apple.quarantine /usr/local/bin/eagraph
